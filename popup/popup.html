@@ -42,17 +42,21 @@
       --transition: all 0.2s ease;
     }
     
+    html, body {
+      height: 600px;
+      overflow: hidden;
+    }
     body {
-      width: 400px;
-      min-height: 600px;
-      max-height: 700px;
+      width: 380px;
+      height: 600px;
       background: var(--bg-primary);
       color: var(--text-primary);
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      font-size: 14px;
-      line-height: 1.5;
-      overflow-x: hidden;
-      overflow-y: auto;
+      font-size: 13px;
+      line-height: 1.4;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
     
     /* Scrollbar */
@@ -63,60 +67,58 @@
     
     /* Header */
     .header {
-      position: sticky;
-      top: 0;
-      z-index: 100;
+      flex-shrink: 0;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 16px 20px;
+      padding: 10px 14px;
       background: var(--bg-primary);
       border-bottom: 1px solid var(--border);
     }
-    
+
     .logo {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       font-weight: 700;
-      font-size: 16px;
+      font-size: 14px;
       color: var(--primary);
     }
-    
+
     .logo-icon {
-      width: 32px;
-      height: 32px;
+      width: 28px;
+      height: 28px;
       background: var(--primary);
-      border-radius: var(--radius-md);
+      border-radius: var(--radius-sm);
       display: flex;
       align-items: center;
       justify-content: center;
       color: white;
-      font-size: 18px;
+      font-size: 15px;
       font-weight: 700;
     }
-    
+
     .header-actions {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       align-items: center;
     }
-    
+
     .badge {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      padding: 4px 10px;
+      padding: 3px 8px;
       border-radius: 20px;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 500;
       background: var(--bg-tertiary);
       color: var(--text-secondary);
     }
-    
+
     .btn-icon {
-      width: 32px;
-      height: 32px;
+      width: 28px;
+      height: 28px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -127,7 +129,7 @@
       border-radius: var(--radius-sm);
       transition: var(--transition);
     }
-    
+
     .btn-icon:hover {
       background: var(--bg-tertiary);
       color: var(--text-primary);
@@ -137,22 +139,148 @@
     .panel {
       display: none;
       flex-direction: column;
-      height: calc(100vh - 65px);
+      flex: 1;
+      height: 100%;
+      overflow: hidden;
     }
-    
+
     .panel.active {
       display: flex;
+    }
+    .panel:not(.active) {
+      display: none !important;
     }
     
     /* Auth Panel */
     #auth-panel {
-      padding: 48px 24px;
-      display: flex;
+      padding: 32px 20px;
       flex-direction: column;
       align-items: center;
-      gap: 24px;
-      min-height: 500px;
+      gap: 16px;
       justify-content: center;
+    }
+
+    .auth-logo {
+      width: 48px;
+      height: 48px;
+      background: var(--primary);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .auth-title {
+      font-size: 20px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .auth-subtitle {
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-align: center;
+      max-width: 260px;
+    }
+
+    .form-group {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .input-field {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--text-primary);
+      background: var(--bg-primary);
+      transition: var(--transition);
+      outline: none;
+    }
+
+    .input-field:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px var(--primary-light);
+    }
+
+    .input-field::placeholder {
+      color: var(--text-tertiary);
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 10px 16px;
+      border-radius: var(--radius-md);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: var(--transition);
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+      width: 100%;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-secondary);
+    }
+
+    .btn-ghost {
+      background: none;
+      color: var(--text-secondary);
+      padding: 6px 10px;
+    }
+
+    .btn-ghost:hover {
+      color: var(--primary);
+      background: var(--primary-light);
+    }
+
+    .btn-success {
+      background: var(--success-light);
+      color: var(--success);
+      border: 1px solid rgba(5, 118, 66, 0.2);
+    }
+
+    .btn-danger {
+      background: var(--danger-light);
+      color: var(--danger);
+      border: 1px solid rgba(204, 16, 22, 0.2);
+    }
+    #auth-panel.panel.active {
+      display: flex;
     }
     
     .auth-logo {
@@ -277,8 +405,12 @@
     
     /* Main Panel */
     .section {
-      padding: 16px 20px;
+      padding: 10px 14px;
       border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .section:last-child {
+      border-bottom: none;
     }
     
     .section-title {
@@ -293,23 +425,23 @@
     /* Profile Card */
     .profile-card {
       display: flex;
-      gap: 12px;
-      padding: 16px;
+      gap: 10px;
+      padding: 10px 12px;
       background: var(--bg-secondary);
-      border-radius: var(--radius-lg);
+      border-radius: var(--radius-md);
       border: 1px solid var(--border);
     }
-    
+
     .profile-avatar {
-      width: 48px;
-      height: 48px;
+      width: 40px;
+      height: 40px;
       border-radius: 50%;
       background: linear-gradient(135deg, var(--primary), #7c3aed);
       display: flex;
       align-items: center;
       justify-content: center;
       font-weight: 700;
-      font-size: 18px;
+      font-size: 15px;
       color: white;
       flex-shrink: 0;
       overflow: hidden;
@@ -354,15 +486,15 @@
     .tone-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 8px;
+      gap: 6px;
     }
-    
+
     .tone-btn {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 4px;
-      padding: 10px 8px;
+      gap: 2px;
+      padding: 6px 4px;
       background: var(--bg-primary);
       border: 1.5px solid var(--border);
       border-radius: var(--radius-md);
@@ -370,34 +502,35 @@
       transition: var(--transition);
       font-family: inherit;
       color: var(--text-secondary);
+      font-size: 11px;
     }
-    
+
     .tone-btn:hover {
       border-color: var(--primary);
       background: var(--primary-light);
     }
-    
+
     .tone-btn.active {
       border-color: var(--primary);
       background: var(--primary-light);
       color: var(--primary);
       font-weight: 600;
     }
-    
+
     .tone-emoji {
-      font-size: 20px;
+      font-size: 16px;
     }
-    
+
     .tone-label {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 500;
     }
     
     /* Generate Button */
     .generate-btn {
       width: 100%;
-      padding: 14px 20px;
-      font-size: 15px;
+      padding: 10px 16px;
+      font-size: 13px;
       font-weight: 600;
       border-radius: var(--radius-md);
       background: var(--primary);
@@ -408,55 +541,60 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
+      gap: 6px;
     }
-    
+
     .generate-btn:hover:not(:disabled) {
       background: var(--primary-hover);
-      transform: translateY(-1px);
-      box-shadow: var(--shadow-md);
     }
-    
+
     .generate-btn:disabled {
-      opacity: 0.5;
+      opacity: 0.6;
       cursor: not-allowed;
     }
     
     /* Output Box */
+    .output-section {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-height: 0;
+    }
     .output-box {
       background: var(--bg-secondary);
       border: 1.5px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: 16px;
-      min-height: 120px;
-      max-height: 200px;
+      border-radius: var(--radius-md);
+      padding: 12px;
+      flex: 1;
       overflow-y: auto;
-      font-size: 14px;
-      line-height: 1.6;
+      font-size: 13px;
+      line-height: 1.5;
       white-space: pre-wrap;
       word-break: break-word;
+      min-height: 80px;
     }
-    
+
     .output-box.streaming {
       border-color: var(--primary);
-      box-shadow: 0 0 0 3px var(--primary-light);
+      box-shadow: 0 0 0 2px var(--primary-light);
     }
-    
+
     .output-placeholder {
       color: var(--text-tertiary);
       font-style: italic;
     }
-    
+
     .cursor-blink {
       display: inline-block;
       width: 2px;
-      height: 16px;
+      height: 14px;
       background: var(--primary);
       margin-left: 2px;
       animation: blink 0.8s infinite;
       vertical-align: text-bottom;
     }
-    
+
     @keyframes blink {
       0%, 100% { opacity: 1; }
       50% { opacity: 0; }
@@ -476,35 +614,34 @@
     
     /* Status Bar */
     .status-bar {
-      position: sticky;
-      bottom: 0;
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 10px 20px;
+      gap: 6px;
+      padding: 6px 14px;
       background: var(--bg-primary);
       border-top: 1px solid var(--border);
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-secondary);
+      flex-shrink: 0;
     }
-    
+
     .status-dot {
-      width: 8px;
-      height: 8px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       background: var(--success);
       flex-shrink: 0;
     }
-    
+
     .status-dot.loading {
       background: var(--warning);
       animation: pulse 1s infinite;
     }
-    
+
     .status-dot.error {
       background: var(--danger);
     }
-    
+
     @keyframes pulse {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.5; }
@@ -552,174 +689,183 @@
     
     /* Leads Panel */
     .leads-header {
-      padding: 16px 20px;
+      padding: 10px 14px;
       border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
     }
-    
+
     .leads-stats {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 12px;
-      padding: 16px 20px;
+      gap: 8px;
+      padding: 10px 14px;
       border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
     }
-    
+
     .stat-card {
       text-align: center;
-      padding: 12px;
+      padding: 8px 4px;
       background: var(--bg-secondary);
       border-radius: var(--radius-md);
     }
-    
+
     .stat-value {
-      font-size: 24px;
+      font-size: 18px;
       font-weight: 700;
       color: var(--primary);
     }
-    
+
     .stat-label {
-      font-size: 10px;
+      font-size: 9px;
       color: var(--text-tertiary);
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      margin-top: 4px;
+      margin-top: 2px;
     }
-    
+
     .leads-list {
       flex: 1;
       overflow-y: auto;
-      padding: 12px;
+      padding: 8px 10px;
     }
-    
+
     .lead-card {
       background: var(--bg-primary);
       border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      margin-bottom: 12px;
+      border-radius: var(--radius-md);
+      margin-bottom: 8px;
       overflow: hidden;
       transition: var(--transition);
     }
-    
+
     .lead-card:hover {
       border-color: var(--primary);
       box-shadow: var(--shadow-sm);
     }
-    
+
     .lead-card-header {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 16px;
+      gap: 10px;
+      padding: 10px 12px;
       cursor: pointer;
     }
-    
+
     .lead-card-body {
       display: none;
-      padding: 0 16px 16px;
+      padding: 0 12px 10px;
       border-top: 1px solid var(--border);
+      font-size: 12px;
     }
-    
+
     .lead-card.expanded .lead-card-body {
       display: block;
     }
-    
+
     .lead-actions {
       display: flex;
-      gap: 8px;
-      padding: 12px 16px;
+      gap: 6px;
+      padding: 8px 12px;
       background: var(--bg-secondary);
       border-top: 1px solid var(--border);
     }
-    
+
     .lead-actions .btn {
       flex: 1;
-      padding: 8px 12px;
-      font-size: 12px;
+      padding: 6px 8px;
+      font-size: 11px;
     }
     
     /* Notes Panel */
     .notes-header {
-      padding: 16px 20px;
+      padding: 10px 14px;
       border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
     }
-    
+
     .notes-list {
       flex: 1;
       overflow-y: auto;
-      padding: 12px;
+      padding: 8px 10px;
     }
-    
+
     .note-card {
       background: var(--bg-primary);
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      padding: 16px;
-      margin-bottom: 12px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
       cursor: pointer;
       transition: var(--transition);
     }
-    
+
     .note-card:hover {
       border-color: var(--primary);
       box-shadow: var(--shadow-sm);
     }
-    
+
     .note-title {
       font-weight: 600;
-      font-size: 14px;
-      margin-bottom: 8px;
+      font-size: 13px;
+      margin-bottom: 4px;
     }
-    
+
     .note-content {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-secondary);
-      line-height: 1.5;
-      margin-bottom: 8px;
+      line-height: 1.4;
+      margin-bottom: 4px;
       display: -webkit-box;
-      -webkit-line-clamp: 3;
+      -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
       overflow: hidden;
     }
-    
+
     .note-meta {
       display: flex;
       align-items: center;
-      gap: 8px;
-      font-size: 11px;
+      gap: 6px;
+      font-size: 10px;
       color: var(--text-tertiary);
     }
     
     /* Settings Panel */
     .settings-header {
-      padding: 16px 20px;
+      padding: 10px 14px;
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
+      flex-shrink: 0;
     }
-    
+
     .settings-content {
-      padding: 20px;
+      padding: 12px 14px;
       flex: 1;
       overflow-y: auto;
     }
-    
+
     .settings-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 12px 0;
+      padding: 10px 0;
       border-bottom: 1px solid var(--border-light);
+      gap: 8px;
     }
-    
+
     .settings-label {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-secondary);
+      flex-shrink: 0;
     }
-    
+
     .settings-value {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
+      text-align: right;
+      word-break: break-word;
     }
     
     /* Utilities */
@@ -772,10 +918,11 @@
   <div class="panel" id="auth-panel">
     <div class="auth-logo">in</div>
     <div>
-      <h1 class="auth-title">Welcome Back</h1>
-      <p class="auth-subtitle">Sign in to generate personalized LinkedIn messages with AI</p>
+      <h1 class="auth-title" id="auth-title">Welcome Back</h1>
+      <p class="auth-subtitle" id="auth-subtitle">Sign in to generate personalized LinkedIn messages with AI</p>
     </div>
     <div class="form-group">
+      <input type="text" class="input-field hidden" id="auth-name" placeholder="Full name" />
       <input type="email" class="input-field" id="auth-email" placeholder="Email address" />
       <div style="position: relative;">
         <input type="password" class="input-field" id="auth-password" placeholder="Password" style="padding-right: 44px; width: 100%;" />
@@ -786,10 +933,11 @@
           </svg>
         </button>
       </div>
-      <button class="btn btn-primary" id="login-btn">Sign In</button>
+      <button class="btn btn-primary" id="auth-btn">Sign In</button>
     </div>
     <div style="font-size: 12px; color: var(--text-secondary);">
-      Don't have an account? <a href="https://linkedaai.flowentech.com/signup" target="_blank" style="color: var(--primary); text-decoration: none; font-weight: 600;">Sign up free</a>
+      <span id="auth-toggle-text">Don't have an account?</span>
+      <a href="#" id="auth-toggle" style="color: var(--primary); text-decoration: none; font-weight: 600;">Sign up free</a>
     </div>
   </div>
 
@@ -802,13 +950,13 @@
         <div class="profile-card">
           <div class="profile-avatar" id="profile-avatar">?</div>
           <div class="profile-info">
-            <div class="profile-name" id="profile-name">—</div>
-            <div class="profile-detail" id="profile-title">—</div>
-            <div class="profile-detail" id="profile-company">—</div>
-            <div class="profile-detail" id="profile-location">—</div>
+            <div class="profile-name" id="profile-name" style="font-size: 14px;">—</div>
+            <div class="profile-detail" id="profile-title" style="font-size: 11px;">—</div>
+            <div class="profile-detail" id="profile-company" style="font-size: 11px;">—</div>
+            <div class="profile-detail" id="profile-location" style="font-size: 11px;">—</div>
           </div>
-          <button class="btn-icon" id="refresh-profile-btn" title="Refresh">
-            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <button class="btn-icon" id="refresh-profile-btn" title="Refresh" style="width: 24px; height: 24px;">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path d="M23 4v6h-6"/>
               <path d="M1 20v-6h6"/>
               <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/>
@@ -818,15 +966,15 @@
         </div>
       </div>
       <div id="profile-empty">
-        <div class="profile-empty">
-          <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color: var(--text-tertiary); margin-bottom: 12px;">
+        <div class="profile-empty" style="padding: 16px;">
+          <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color: var(--text-tertiary); margin-bottom: 8px;">
             <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
             <circle cx="8.5" cy="7" r="4"/>
             <line x1="18" y1="8" x2="23" y2="8"/>
             <line x1="20.5" y1="5.5" x2="20.5" y2="10.5"/>
           </svg>
-          <div style="margin-bottom: 4px;">No Profile Detected</div>
-          <div style="font-size: 12px;">Navigate to a LinkedIn profile to get started</div>
+          <div style="margin-bottom: 2px; font-size: 13px;">No Profile Detected</div>
+          <div style="font-size: 11px;">Navigate to a LinkedIn profile</div>
         </div>
       </div>
     </div>
@@ -873,28 +1021,28 @@
     </div>
 
     <!-- Output Section -->
-    <div class="section" style="flex: 1; overflow-y: auto;">
+    <div class="section output-section">
       <div class="section-title">Generated Message</div>
       <div class="output-box" id="output-box">
         <span class="output-placeholder" id="output-placeholder">Your AI-generated message will appear here...</span>
       </div>
-      <div class="actions-row mt-8 hidden" id="output-actions">
-        <button class="btn btn-secondary" id="copy-btn">
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <div class="actions-row mt-8 hidden" id="output-actions" style="margin-top: 8px;">
+        <button class="btn btn-secondary" id="copy-btn" style="padding: 6px 10px; font-size: 11px;">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <rect x="9" y="9" width="13" height="13" rx="2"/>
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
           </svg>
           Copy
         </button>
-        <button class="btn btn-secondary" id="insert-btn">
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <button class="btn btn-secondary" id="insert-btn" style="padding: 6px 10px; font-size: 11px;">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M12 5v14"/>
             <path d="M5 12l7 7 7-7"/>
           </svg>
           Insert
         </button>
-        <button class="btn btn-ghost" id="regen-btn">
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <button class="btn btn-ghost" id="regen-btn" style="padding: 6px 10px; font-size: 11px;">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M23 4v6h-6"/>
             <path d="M1 20v-6h6"/>
             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/>
@@ -905,28 +1053,28 @@
     </div>
 
     <!-- Save Section -->
-    <div class="section">
-      <button class="btn btn-success w-full" id="save-lead-btn" disabled>
-        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+    <div class="section" style="display: flex; gap: 8px; align-items: center;">
+      <button class="btn btn-success" id="save-lead-btn" disabled style="flex: 1; padding: 8px 12px; font-size: 12px;">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
           <polyline points="17 21 17 13 7 13 7 21"/>
           <polyline points="7 3 7 8 15 8"/>
         </svg>
         Save Lead
       </button>
-      <button class="btn btn-ghost w-full mt-8" id="add-details-btn" style="font-size: 12px; color: var(--text-tertiary);">
-        + Add more details (email, phone, tags)
+      <button class="btn btn-ghost" id="add-details-btn" style="font-size: 11px; color: var(--text-tertiary); padding: 8px 10px;">
+        + Details
       </button>
     </div>
 
     <!-- Extra Lead Details (hidden by default) -->
     <div class="section hidden" id="lead-details-section">
       <div class="section-title">Additional Info</div>
-      <div style="display: flex; flex-direction: column; gap: 12px;">
-        <input type="email" class="input-field" id="lead-email" placeholder="Email address" />
-        <input type="tel" class="input-field" id="lead-phone" placeholder="Phone number" />
-        <input type="url" class="input-field" id="lead-linkedin" placeholder="LinkedIn URL" />
-        <input type="text" class="input-field" id="lead-tags" placeholder="Tags (comma separated)" />
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <input type="email" class="input-field" id="lead-email" placeholder="Email address" style="padding: 8px 12px; font-size: 12px;" />
+        <input type="tel" class="input-field" id="lead-phone" placeholder="Phone number" style="padding: 8px 12px; font-size: 12px;" />
+        <input type="url" class="input-field" id="lead-linkedin" placeholder="LinkedIn URL" style="padding: 8px 12px; font-size: 12px;" />
+        <input type="text" class="input-field" id="lead-tags" placeholder="Tags (comma separated)" style="padding: 8px 12px; font-size: 12px;" />
       </div>
     </div>
   </div>
@@ -934,17 +1082,17 @@
   <!-- Leads Panel -->
   <div class="panel" id="leads-panel">
     <div class="leads-header">
-      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
-        <button class="btn-icon" id="leads-back-btn">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+        <button class="btn-icon" id="leads-back-btn" style="width: 24px; height: 24px; flex-shrink: 0;">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <polyline points="15 18 9 12 15 6"/>
           </svg>
         </button>
-        <h2 style="font-size: 18px; font-weight: 700;">My Leads</h2>
+        <h2 style="font-size: 15px; font-weight: 700; white-space: nowrap;">My Leads</h2>
       </div>
-      <input type="text" class="input-field" id="leads-search" placeholder="🔍 Search leads..." />
-      <div style="display: flex; gap: 8px; margin-top: 12px; overflow-x: auto; padding-bottom: 8px;" id="leads-tags-filter">
-        <button class="btn btn-secondary" data-tag="" style="padding: 6px 12px; font-size: 12px; white-space: nowrap;">All</button>
+      <input type="text" class="input-field" id="leads-search" placeholder="Search leads..." style="padding: 6px 10px; font-size: 12px;" />
+      <div style="display: flex; gap: 6px; margin-top: 6px; overflow-x: auto; padding-bottom: 2px;" id="leads-tags-filter">
+        <button class="btn btn-secondary" data-tag="" style="padding: 4px 10px; font-size: 11px; white-space: nowrap;">All</button>
       </div>
     </div>
 
@@ -964,15 +1112,15 @@
     </div>
 
     <div class="leads-list" id="leads-list">
-      <div class="text-center text-muted" style="padding: 48px 24px;">
-        <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom: 12px;">
+      <div class="text-center text-muted" style="padding: 32px 20px;">
+        <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom: 8px;">
           <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
           <circle cx="9" cy="7" r="4"/>
           <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
           <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
         </svg>
-        <div>No leads saved yet</div>
-        <div style="font-size: 12px; margin-top: 4px;">Start saving LinkedIn profiles!</div>
+        <div style="font-size: 13px;">No leads saved yet</div>
+        <div style="font-size: 11px; margin-top: 2px;">Start saving LinkedIn profiles!</div>
       </div>
     </div>
   </div>
@@ -980,28 +1128,28 @@
   <!-- Notes Panel -->
   <div class="panel" id="notes-panel">
     <div class="notes-header">
-      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
-        <button class="btn-icon" id="notes-back-btn">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+        <button class="btn-icon" id="notes-back-btn" style="width: 24px; height: 24px; flex-shrink: 0;">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <polyline points="15 18 9 12 15 6"/>
           </svg>
         </button>
-        <h2 style="font-size: 18px; font-weight: 700;">My Notes</h2>
-        <button class="btn btn-primary" id="create-note-btn" style="margin-left: auto; padding: 8px 16px; font-size: 13px;">+ New</button>
+        <h2 style="font-size: 15px; font-weight: 700; white-space: nowrap;">My Notes</h2>
+        <button class="btn btn-primary" id="create-note-btn" style="margin-left: auto; padding: 4px 10px; font-size: 11px; flex-shrink: 0; width: auto !important; min-width: 60px;">+ New</button>
       </div>
-      <input type="text" class="input-field" id="notes-search" placeholder="🔍 Search notes..." />
+      <input type="text" class="input-field" id="notes-search" placeholder="Search notes..." style="padding: 6px 10px; font-size: 12px;" />
     </div>
 
     <div class="notes-list" id="notes-list">
-      <div class="text-center text-muted" style="padding: 48px 24px;">
-        <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom: 12px;">
+      <div class="text-center text-muted" style="padding: 32px 20px;">
+        <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom: 8px;">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
           <polyline points="14 2 14 8 20 8"/>
           <line x1="16" y1="13" x2="8" y2="13"/>
           <line x1="16" y1="17" x2="8" y2="17"/>
         </svg>
-        <div>No notes yet</div>
-        <div style="font-size: 12px; margin-top: 4px;">Create your first note!</div>
+        <div style="font-size: 13px;">No notes yet</div>
+        <div style="font-size: 11px; margin-top: 2px;">Create your first note!</div>
       </div>
     </div>
   </div>
@@ -1009,12 +1157,12 @@
 <!-- Settings Panel -->
   <div class="panel" id="settings-panel">
     <div class="settings-header">
-      <button class="btn-icon" id="settings-back-btn">
-        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <button class="btn-icon" id="settings-back-btn" style="width: 24px; height: 24px; flex-shrink: 0;">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <polyline points="15 18 9 12 15 6"/>
         </svg>
       </button>
-      <h2 style="font-size: 18px; font-weight: 700;">Settings</h2>
+      <h2 style="font-size: 15px; font-weight: 700; white-space: nowrap;">Settings</h2>
     </div>
     <div class="settings-content">
       <div class="settings-row">
@@ -1031,35 +1179,41 @@
       </div>
       <div class="settings-row">
         <span class="settings-label">Daily Limit</span>
-        <span class="settings-value">10 messages (Free) / 100 messages (Pro)</span>
+        <span class="settings-value">10 (Free) / 100 (Pro)</span>
       </div>
-      <div style="padding: 16px 0; border-top: 1px solid var(--border); margin-top: 16px;">
-        <button class="btn btn-secondary w-full" id="upgrade-to-pro-btn" style="background: linear-gradient(135deg, #0a66c2, #7c3aed); color: white; border: none;">
+      <div style="padding: 12px 0; border-top: 1px solid var(--border); margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+        <a href="https://linkedaai.flowentech.com/dashboard" target="_blank" class="btn btn-secondary w-full" style="text-decoration: none; text-align: center; font-size: 12px; padding: 8px 12px;">
+          Open Dashboard
+        </a>
+        <button class="btn btn-secondary w-full" id="upgrade-to-pro-btn" style="background: linear-gradient(135deg, #0a66c2, #7c3aed); color: white; border: none; font-size: 12px; padding: 8px 12px;">
           Upgrade to Pro
+        </button>
+        <button class="btn btn-danger w-full" id="signout-btn" style="font-size: 12px; padding: 8px 12px;">
+          Sign Out
         </button>
       </div>
     </div>
   </div>
 
   <!-- Note Modal -->
-  <div class="modal hidden" id="note-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
-    <div style="background: var(--bg-primary); border-radius: var(--radius-lg); padding: 24px; width: 90%; max-width: 360px; max-height: 80vh; overflow-y: auto;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-        <h3 style="font-size: 16px; font-weight: 600;" id="note-modal-title">New Note</h3>
-        <button class="btn-icon" id="close-note-modal">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+  <div class="modal hidden" id="note-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center;">
+    <div style="background: var(--bg-primary); border-radius: var(--radius-lg); padding: 16px; width: 92%; max-width: 340px; max-height: 82vh; overflow-y: auto; box-shadow: var(--shadow-lg);">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+        <h3 style="font-size: 14px; font-weight: 600;" id="note-modal-title">New Note</h3>
+        <button class="btn-icon" id="close-note-modal" style="width: 28px; height: 28px;">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
           </svg>
         </button>
       </div>
-      <div style="display: flex; flex-direction: column; gap: 12px;">
-        <input type="text" class="input-field" id="note-title" placeholder="Note title" />
-        <input type="text" class="input-field" id="note-header" placeholder="Header (optional)" />
-        <textarea class="input-field" id="note-content" placeholder="Note content..." rows="4" style="resize: vertical;"></textarea>
-        <input type="text" class="input-field" id="note-tags-input" placeholder="Tags (comma separated)" />
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-primary" id="save-note-btn" style="flex: 1;">Save</button>
-          <button class="btn btn-ghost" id="delete-note-btn" style="color: var(--danger);">Delete</button>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <input type="text" class="input-field" id="note-title" placeholder="Note title" style="padding: 8px 12px; font-size: 13px;" />
+        <input type="text" class="input-field" id="note-header" placeholder="Header (optional)" style="padding: 8px 12px; font-size: 13px;" />
+        <textarea class="input-field" id="note-content" placeholder="Note content..." rows="3" style="resize: vertical; padding: 8px 12px; font-size: 13px;"></textarea>
+        <input type="text" class="input-field" id="note-tags-input" placeholder="Tags (comma separated)" style="padding: 8px 12px; font-size: 13px;" />
+        <div style="display: flex; gap: 6px; margin-top: 4px;">
+          <button class="btn btn-primary" id="save-note-btn" style="flex: 1; padding: 8px 12px; font-size: 13px;">Save</button>
+          <button class="btn btn-ghost" id="delete-note-btn" style="color: var(--danger); padding: 8px 12px; font-size: 13px; display: none;">Delete</button>
         </div>
       </div>
     </div>

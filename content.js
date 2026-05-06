@@ -10,299 +10,171 @@
 
   /**
    * Extract profile data from the current LinkedIn profile page DOM
-   * Updated for 2024 LinkedIn structure with comprehensive fallbacks
+   * Improved for 2024-2025 LinkedIn structure
    */
   function scrapeProfileData() {
-    const profile = {};
+    const profile = {
+      name: "",
+      title: "",
+      company: "",
+      location: "",
+      about: "",
+      profileUrl: window.location.href,
+      linkedinUrl: window.location.href,
+      photoUrl: "",
+      email: "",
+      phone: "",
+      website: ""
+    };
 
-    console.log("🔍 Starting to scrape LinkedIn profile...");
-    console.log("📍 Current URL:", window.location.href);
+    console.log("🔍 Scraping LinkedIn profile...");
 
     try {
-      // Name - Try multiple selector strategies
-      const nameSelectors = [
-        "h1.text-heading-xlarge",
-        "h1",
-        ".top-card-layout__title",
-        "#profile-content h1",
-        ".pv-top-card--list-bullet h1",
-        ".text-heading-xlarge"
-      ];
+      // === NAME ===
+      // LinkedIn 2024-2025: name is usually the first <h1> on the page
+      const h1 = document.querySelector("h1");
+      if (h1) {
+        profile.name = h1.innerText?.trim() || "";
+      }
+      // Fallback: look for specific name classes
+      if (!profile.name) {
+        const nameEl = document.querySelector(".text-heading-xlarge, .inline.t-24.t-black.t-bold.break-words, [data-anonymize='person-name']");
+        if (nameEl) profile.name = nameEl.innerText?.trim() || "";
+      }
 
-      let nameEl = null;
-      let foundSelector = "";
+      // === TOP CARD AREA ===
+      // Find the main profile top card to scope our searches
+      const topCard = document.querySelector(
+        ".pv-top-card, .top-card-layout, .profile-topcard, [data-test-id='profile-topcard']"
+      );
+      const scope = topCard || document.body;
 
-      for (const selector of nameSelectors) {
-        nameEl = document.querySelector(selector);
-        if (nameEl?.innerText?.trim() && nameEl.innerText.trim().length > 1) {
-          foundSelector = selector;
-          console.log("✅ Found name with selector:", selector);
-          break;
+      // === TITLE / HEADLINE ===
+      // The headline is usually a div with class containing "text-body-medium" right after the name
+      // Try to find it relative to the name element
+      if (h1) {
+        // Look at siblings and nearby elements
+        let sibling = h1.parentElement?.nextElementSibling || h1.nextElementSibling;
+        for (let i = 0; i < 3 && sibling; i++) {
+          const text = sibling.innerText?.trim();
+          if (text && text.length > 2 && text.length < 200 && !text.includes("Connection")) {
+            profile.title = text;
+            break;
+          }
+          sibling = sibling.nextElementSibling;
+        }
+      }
+      // Fallback: search within top card for headline patterns
+      if (!profile.title) {
+        const headlineEls = scope.querySelectorAll(".text-body-medium, [data-anonymize='headline'], div[class*='headline']");
+        for (const el of headlineEls) {
+          const text = el.innerText?.trim();
+          if (text && text.length > 2 && text.length < 200 && text !== profile.name) {
+            profile.title = text;
+            break;
+          }
         }
       }
 
-      profile.name = nameEl?.innerText?.trim() || "";
-      console.log("👤 Name:", profile.name || "NOT FOUND");
-      console.log("🔍 Used selector:", foundSelector || "none");
-
-      // Title / Headline - Multiple fallback strategies
-      const titleSelectors = [
-        ".text-body-medium.break-words",
-        ".top-card-layout__headline",
-        ".pv-top-card--list-bullet .text-body-medium",
-        ".headline-subtitle",
-        ".text-body-medium",
-        '[data-anonymize="headline"]',
-        "div[aria-label='Headline']",
-        ".text-body-medium.break-words",
-        ".pv-text-details__left-panel .text-body-medium",
-        "div[data-generated-suggestion-target]",
-        ".inline-show-more-text--is-collapsed",
-        ".pv-text-details__left-panel h2",
-        ".top-card-layout__first-subline",
-        "h1 + div div[aria-level='2']",
-        ".text-body-medium:first-child",
-        ".pv-top-card--list-bullet li:first-child span[aria-hidden='true']"
-      ];
-
-      let titleEl = null;
-      foundSelector = "";
-
-      for (const selector of titleSelectors) {
-        titleEl = document.querySelector(selector);
-        if (titleEl?.innerText?.trim() && titleEl.innerText.trim().length > 1) {
-          foundSelector = selector;
-          console.log("✅ Found title with selector:", selector);
-          break;
+      // === COMPANY ===
+      // Look for "Current company" aria-label or experience section
+      const companyBtn = scope.querySelector("button[aria-label*='Current company'], a[aria-label*='Current company']");
+      if (companyBtn) {
+        profile.company = companyBtn.innerText?.trim() || companyBtn.getAttribute("aria-label")?.replace(/Current company\s*/, "") || "";
+      }
+      // Fallback: search for company in experience section
+      if (!profile.company) {
+        const expSection = document.querySelector("#experience, section[data-section='experience']");
+        if (expSection) {
+          const firstExp = expSection.querySelector("li, .experience-item, [data-test-id='experience-item']");
+          if (firstExp) {
+            const companyEl = firstExp.querySelector(".t-14.t-normal, .pv-entity__secondary-title, span[class*='company'], [data-anonymize='company-name']");
+            if (companyEl) profile.company = companyEl.innerText?.trim() || "";
+          }
+        }
+      }
+      // Another fallback: look for text near the title that looks like a company
+      if (!profile.company && profile.title) {
+        const allSpans = scope.querySelectorAll("span, div");
+        for (const el of allSpans) {
+          const text = el.innerText?.trim();
+          if (text && text !== profile.name && text !== profile.title && text.length > 2 && text.length < 80) {
+            // Check if parent has company-related classes
+            const parentClass = el.parentElement?.className || "";
+            if (parentClass.includes("company") || parentClass.includes("experience") || el.closest("[data-test-id='experience-item']")) {
+              profile.company = text;
+              break;
+            }
+          }
         }
       }
 
-      profile.title = titleEl?.innerText?.trim() || "";
-      console.log("💼 Title:", profile.title || "NOT FOUND");
-      console.log("🔍 Used selector:", foundSelector || "none");
-
-      // Company - Try to find from experience section or current position
-      const companySelectors = [
-        ".pv-text-details__right-panel .hoverable-link-text",
-        ".top-card-layout__second-subline .inline-show-more-text",
-        ".top-card-layout__second-subline",
-        ".pv-text-details__right-panel button",
-        ".inline-show-more-text",
-        '[data-anonymize="company"]',
-        ".experience-item .pv-entity__secondary-title",
-        ".pv-text-details__right-panel",
-        ".top-card-layout__second-subline span[aria-hidden='true']",
-        ".pv-text-details__right-panel span[aria-hidden='true']",
-        "button[aria-label*='Current company']",
-        ".pv-text-details__right-panel .inline-show-more-text span",
-        ".pv-text-details__right-panel .visually-hidden",
-        "div[data-anonymize='company-name']",
-        ".pv-text-details__left-panel + .pv-text-details__right-panel span",
-        "li[aria-label*='Current company'] span[aria-hidden='true']"
-      ];
-
-      let companyEl = null;
-      foundSelector = "";
-
-      for (const selector of companySelectors) {
-        companyEl = document.querySelector(selector);
-        if (companyEl?.innerText?.trim() && companyEl.innerText.trim().length > 1) {
-          foundSelector = selector;
-          console.log("✅ Found company with selector:", selector);
-          break;
+      // === LOCATION ===
+      const locationEl = scope.querySelector(
+        ".text-body-small.inline.t-black--light.break-words, [data-anonymize='location'], span[class*='location'], .pv-top-card__distance-badge + *"
+      );
+      if (locationEl) {
+        profile.location = locationEl.innerText?.trim() || "";
+      }
+      // Fallback: search for location pattern (City, State or City, Country)
+      if (!profile.location) {
+        const allText = scope.querySelectorAll("span, div");
+        for (const el of allText) {
+          const text = el.innerText?.trim();
+          if (text && /^[A-Za-z\s]+,\s*[A-Za-z\s]+$/.test(text) && text.length < 60) {
+            profile.location = text;
+            break;
+          }
         }
       }
 
-      profile.company = companyEl?.innerText?.trim() || "";
-      console.log("🏢 Company:", profile.company || "NOT FOUND");
-      console.log("🔍 Used selector:", foundSelector || "none");
-
-      // Location
-      const locationSelectors = [
-        ".text-body-small.inline.t-black--light.break-words",
-        ".top-card-layout__first-subline .text-body-small",
-        ".pv-text-details__left-panel .pb2 span",
-        ".text-body-small",
-        '[data-anonymize="location"]',
-        "span[aria-label='Location']",
-        ".pv-text-details__left-panel .text-body-small",
-        ".top-card-layout__first-subline span[aria-hidden='true']",
-        ".mt2.relative .text-body-small",
-        "div[aria-label*='Location'] span",
-        ".pv-text-details__left-panel .pv-text-details__left-panel span",
-        "li[aria-label*='Location'] span[aria-hidden='true']",
-        ".inline-show-more-text span:last-child"
-      ];
-
-      let locationEl = null;
-      foundSelector = "";
-
-      for (const selector of locationSelectors) {
-        locationEl = document.querySelector(selector);
-        if (locationEl?.innerText?.trim() && locationEl.innerText.trim().length > 1) {
-          foundSelector = selector;
-          console.log("✅ Found location with selector:", selector);
-          break;
+      // === ABOUT / SUMMARY ===
+      const aboutSection = document.querySelector("#about, section[data-section='summary']");
+      if (aboutSection) {
+        const aboutText = aboutSection.querySelector(".inline-show-more-text, .pv-shared-text-with-see-more, span[aria-hidden='true'], .visually-hidden");
+        if (aboutText) {
+          profile.about = aboutText.innerText?.trim()?.slice(0, 500) || "";
         }
       }
 
-      profile.location = locationEl?.innerText?.trim() || "";
-      console.log("📍 Location:", profile.location || "NOT FOUND");
-      console.log("🔍 Used selector:", foundSelector || "none");
-
-      // Contact Information - Phone numbers
-      const phoneSelectors = [
-        ".pv-text-details__right-panel .ci-phone span",
-        "[data-control-name='phone']",
-        'a[href^="tel:"]',
-        ".pv-contact-info__contact-type.ci-phone",
-        'button[aria-label*="phone"]'
-      ];
-
-      let phoneEl = null;
-      foundSelector = "";
-
-      for (const selector of phoneSelectors) {
-        phoneEl = document.querySelector(selector);
-        if (phoneEl?.innerText?.trim() || phoneEl?.href) {
-          foundSelector = selector;
-          console.log("✅ Found phone with selector:", selector);
-          break;
+      // === PHOTO ===
+      // LinkedIn 2024 uses specific image classes
+      const photoEl = scope.querySelector(
+        ".pv-top-card-profile-picture__image, img[class*='profile-photo'], img[class*='top-card__photo'], .profile-photo-edit__preview"
+      );
+      if (photoEl?.src) {
+        profile.photoUrl = photoEl.src;
+      }
+      // Fallback: any image inside the top card that's square/circular and reasonably sized
+      if (!profile.photoUrl) {
+        const images = scope.querySelectorAll("img");
+        for (const img of images) {
+          const rect = img.getBoundingClientRect();
+          if (rect.width >= 100 && rect.width <= 400 && rect.height >= 100 && rect.height <= 400 && img.src) {
+            profile.photoUrl = img.src;
+            break;
+          }
         }
       }
 
-      profile.phone = phoneEl?.innerText?.trim() || phoneEl?.href?.replace("tel:", "") || "";
-      console.log("📞 Phone:", profile.phone || "NOT FOUND");
-      console.log("🔍 Used selector:", foundSelector || "none");
-
-      // Contact Information - Email addresses
-      const emailSelectors = [
-        ".pv-text-details__right-panel .ci-email span",
-        "[data-control-name='email']",
-        'a[href^="mailto:"]',
-        ".pv-contact-info__contact-type.ci-email",
-        'button[aria-label*="email"]'
-      ];
-
-      let emailEl = null;
-      foundSelector = "";
-
-      for (const selector of emailSelectors) {
-        emailEl = document.querySelector(selector);
-        if (emailEl?.innerText?.trim() || emailEl?.href) {
-          foundSelector = selector;
-          console.log("✅ Found email with selector:", selector);
-          break;
-        }
+      // === CONTACT INFO (email, phone, website) ===
+      // These require clicking "Contact info" button, so we usually can't get them
+      // But check if they're already in the DOM
+      const contactSection = document.querySelector(".pv-contact-info, [data-test-id='contact-info']");
+      if (contactSection) {
+        const emailLink = contactSection.querySelector('a[href^="mailto:"]');
+        if (emailLink) profile.email = emailLink.href.replace("mailto:", "");
+        const phoneLink = contactSection.querySelector('a[href^="tel:"]');
+        if (phoneLink) profile.phone = phoneLink.href.replace("tel:", "");
       }
 
-      profile.email = emailEl?.innerText?.trim() || emailEl?.href?.replace("mailto:", "") || "";
-      console.log("📧 Email:", profile.email || "NOT FOUND");
-      console.log("🔍 Used selector:", foundSelector || "none");
-
-      // LinkedIn URL and connection status
-      profile.linkedinUrl = window.location.href;
-      profile.profileUrl = window.location.href; // Keep for backwards compatibility
-
-      // Website URL
-      const websiteSelectors = [
-        ".pv-text-details__right-panel .ci-website span",
-        'a[href^="http"]',
-        "[data-control-name='website']",
-        ".pv-contact-info__contact-type.ci-website"
-      ];
-
-      let websiteEl = null;
-      foundSelector = "";
-
-      for (const selector of websiteSelectors) {
-        websiteEl = document.querySelector(selector);
-        if (websiteEl?.href && websiteEl.href.includes("http")) {
-          foundSelector = selector;
-          console.log("✅ Found website with selector:", selector);
-          break;
-        }
-      }
-
-      profile.website = websiteEl?.href || "";
-      console.log("🌐 Website:", profile.website || "NOT FOUND");
-      console.log("🔍 Used selector:", foundSelector || "none");
-
-      // About section
-      const aboutSelectors = [
-        "#about ~ .pvs-list__outer-container .visually-hidden",
-        ".pv-shared-text-with-see-more span[aria-hidden='true']",
-        "section[data-section='summary'] .pv-shared-text-with-see-more",
-        ".pv-about__summary-text",
-        '[data-anonymize="about"]',
-        "#about section span"
-      ];
-
-      let aboutEl = null;
-      foundSelector = "";
-
-      for (const selector of aboutSelectors) {
-        aboutEl = document.querySelector(selector);
-        if (aboutEl?.innerText?.trim() && aboutEl.innerText.trim().length > 1) {
-          foundSelector = selector;
-          console.log("✅ Found about with selector:", selector);
-          break;
-        }
-      }
-
-      profile.about = aboutEl?.innerText?.trim()?.slice(0, 500) || "";
-      console.log("📝 About:", profile.about ? "FOUND" : "NOT FOUND");
-      console.log("🔍 Used selector:", foundSelector || "none");
-
-      // Profile URL
-      profile.profileUrl = window.location.href;
-
-      // Profile picture
-      const photoSelectors = [
-        ".pv-top-card-profile-picture__image",
-        ".profile-photo-edit__preview",
-        ".top-card-layout__card img",
-        ".pv-top-card__photo img",
-        ".profile-photo__profile-photo-container img",
-        "img pv-top-card-profile-picture__image"
-      ];
-
-      let imgEl = null;
-      foundSelector = "";
-
-      for (const selector of photoSelectors) {
-        imgEl = document.querySelector(selector);
-        if (imgEl?.src) {
-          foundSelector = selector;
-          console.log("✅ Found photo with selector:", selector);
-          break;
-        }
-      }
-
-      profile.photoUrl = imgEl?.src || "";
-      console.log("📸 Photo:", profile.photoUrl ? "FOUND" : "NOT FOUND");
-      console.log("🔍 Used selector:", foundSelector || "none");
-
-      console.log("✅ Profile scraping complete:", profile);
+      console.log("✅ Scraped profile:", profile);
       return profile;
 
     } catch (error) {
       console.error("❌ Error scraping profile:", error);
-
-      // Fallback: Try to get basic info from page title and meta
-      console.log("🔄 Trying fallback method...");
-      const fallbackProfile = {
-        name: document.title?.split(" - ")[0]?.trim() || "",
-        title: "",
-        company: "",
-        location: "",
-        about: "",
-        profileUrl: window.location.href,
-        photoUrl: ""
-      };
-
-      console.log("📊 Fallback profile:", fallbackProfile);
-      return fallbackProfile;
+      // Return whatever we have, even if incomplete
+      return profile;
     }
   }
 

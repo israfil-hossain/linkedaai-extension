@@ -15,7 +15,8 @@ let state = {
   usageLimit: 10,
   leads: [],
   notes: [],
-  currentPanel: "main"
+  currentPanel: "main",
+  authMode: "login" // 'login' | 'signup'
 };
 
 // ---- DOM refs ----
@@ -31,7 +32,7 @@ const panels = {
 };
 
 // Auth elements
-let authEmail, authPassword, loginBtn;
+let authEmail, authPassword, authName, authBtn, authTitle, authSubtitle, authToggle, authToggleText;
 
 // ---- Init ----
 document.addEventListener("DOMContentLoaded", async () => {
@@ -46,7 +47,12 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   authEmail = $("auth-email");
   authPassword = $("auth-password");
-  loginBtn = $("login-btn");
+  authName = $("auth-name");
+  authBtn = $("auth-btn");
+  authTitle = $("auth-title");
+  authSubtitle = $("auth-subtitle");
+  authToggle = $("auth-toggle");
+  authToggleText = $("auth-toggle-text");
 
   // Setup event listeners
   setupPasswordToggle();
@@ -83,9 +89,17 @@ function setupPasswordToggle() {
 
 // ---- Event Listeners ----
 function setupEventListeners() {
-  // Login button
-  if (loginBtn) {
-    loginBtn.addEventListener("click", handleLogin);
+  // Auth button (login / signup)
+  if (authBtn) {
+    authBtn.addEventListener("click", handleAuthSubmit);
+  }
+
+  // Auth mode toggle
+  if (authToggle) {
+    authToggle.addEventListener("click", (e) => {
+      e.preventDefault();
+      toggleAuthMode();
+    });
   }
 
   // Sign out
@@ -166,7 +180,10 @@ function setupEventListeners() {
   $("save-lead-btn")?.addEventListener("click", handleSaveLead);
 
   // Notes
-  $("create-note-btn")?.addEventListener("click", handleCreateNote);
+  $("create-note-btn")?.addEventListener("click", () => openNoteModal());
+  $("close-note-modal")?.addEventListener("click", closeNoteModal);
+  $("save-note-btn")?.addEventListener("click", handleSaveNote);
+  $("delete-note-btn")?.addEventListener("click", handleDeleteNote);
 
   // Search
   $("leads-search")?.addEventListener("input", handleLeadsSearch);
@@ -177,6 +194,45 @@ function setupEventListeners() {
 }
 
 // ---- Auth ----
+function resetAuthForm() {
+  if (authBtn) {
+    authBtn.disabled = false;
+    authBtn.textContent = state.authMode === "signup" ? "Sign Up" : "Sign In";
+  }
+  if (authPassword) authPassword.value = "";
+}
+
+function toggleAuthMode() {
+  state.authMode = state.authMode === "login" ? "signup" : "login";
+
+  if (state.authMode === "signup") {
+    authTitle.textContent = "Create Account";
+    authSubtitle.textContent = "Get started with personalized LinkedIn outreach";
+    authName?.classList.remove("hidden");
+    authBtn.textContent = "Sign Up";
+    authToggleText.textContent = "Already have an account?";
+    authToggle.textContent = "Sign in";
+  } else {
+    authTitle.textContent = "Welcome Back";
+    authSubtitle.textContent = "Sign in to generate personalized LinkedIn messages with AI";
+    authName?.classList.add("hidden");
+    authBtn.textContent = "Sign In";
+    authToggleText.textContent = "Don't have an account?";
+    authToggle.textContent = "Sign up free";
+  }
+
+  // Re-enable button when switching modes
+  if (authBtn) authBtn.disabled = false;
+}
+
+async function handleAuthSubmit() {
+  if (state.authMode === "signup") {
+    await handleSignup();
+  } else {
+    await handleLogin();
+  }
+}
+
 async function handleLogin() {
   const email = authEmail?.value.trim();
   const password = authPassword?.value.trim();
@@ -186,8 +242,9 @@ async function handleLogin() {
     return;
   }
 
-  loginBtn.disabled = true;
-  loginBtn.textContent = "Signing in...";
+  authBtn.disabled = true;
+  const originalText = authBtn.textContent;
+  authBtn.textContent = "Signing in...";
 
   try {
     console.log("Attempting login to:", API_BASE_URL + "/api/auth/login");
@@ -202,20 +259,72 @@ async function handleLogin() {
 
     if (!res.ok) {
       showToast(data.error || "Sign in failed", "error");
-      loginBtn.disabled = false;
-      loginBtn.textContent = "Sign In";
+      authBtn.disabled = false;
+      authBtn.textContent = originalText;
       return;
     }
 
     await sendBg({ type: "SET_AUTH_TOKEN", token: data.token });
+    if (authPassword) authPassword.value = "";
     await checkAuth();
     showToast("Welcome back! 👋", "success");
 
   } catch (error) {
     console.error("Login error:", error);
     showToast("Network error", "error");
-    loginBtn.disabled = false;
-    loginBtn.textContent = "Sign In";
+    authBtn.disabled = false;
+    authBtn.textContent = originalText;
+  }
+}
+
+async function handleSignup() {
+  const name = authName?.value.trim();
+  const email = authEmail?.value.trim();
+  const password = authPassword?.value.trim();
+
+  if (!name || !email || !password) {
+    showToast("Please fill in all fields", "error");
+    return;
+  }
+
+  if (password.length < 6) {
+    showToast("Password must be at least 6 characters", "error");
+    return;
+  }
+
+  authBtn.disabled = true;
+  const originalText = authBtn.textContent;
+  authBtn.textContent = "Creating account...";
+
+  try {
+    console.log("Attempting signup to:", API_BASE_URL + "/api/auth/signup");
+    const res = await fetch(`${API_BASE_URL}/api/auth/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, email, password }),
+    });
+
+    const data = await res.json();
+    console.log("Signup response:", res.status, data);
+
+    if (!res.ok) {
+      showToast(data.error || "Sign up failed", "error");
+      authBtn.disabled = false;
+      authBtn.textContent = originalText;
+      return;
+    }
+
+    await sendBg({ type: "SET_AUTH_TOKEN", token: data.token });
+    if (authPassword) authPassword.value = "";
+    if (authName) authName.value = "";
+    await checkAuth();
+    showToast("Account created! 🎉", "success");
+
+  } catch (error) {
+    console.error("Signup error:", error);
+    showToast("Network error", "error");
+    authBtn.disabled = false;
+    authBtn.textContent = originalText;
   }
 }
 
@@ -224,6 +333,7 @@ async function checkAuth() {
 
   try {
     const { token } = await sendBg({ type: "GET_AUTH_TOKEN" });
+    console.log("📦 Token from storage:", token ? "exists" : "null");
 
     if (!token) {
       showPanel("auth");
@@ -231,13 +341,33 @@ async function checkAuth() {
     }
 
     // Verify token with server
-    const res = await fetch(`${API_BASE_URL}/api/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    let res;
+    try {
+      res = await fetch(`${API_BASE_URL}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (networkErr) {
+      console.warn("🌐 Network error verifying token, using cached token:", networkErr);
+      // Offline or server down — don't clear token, show main panel
+      state.isLoggedIn = true;
+      showPanel("main");
+      await loadProfile();
+      return;
+    }
 
-    if (!res.ok) {
+    // Only clear token on 401/403 (actually invalid). Keep it on 5xx or other errors.
+    if (res.status === 401 || res.status === 403) {
+      console.warn("🚫 Token rejected by server (", res.status, "), clearing...");
       await sendBg({ type: "CLEAR_AUTH_TOKEN" });
       showPanel("auth");
+      return;
+    }
+
+    if (!res.ok) {
+      console.warn("⚠️ /api/auth/me returned", res.status, "— keeping token, showing main panel");
+      state.isLoggedIn = true;
+      showPanel("main");
+      await loadProfile();
       return;
     }
 
@@ -267,7 +397,10 @@ function showPanel(name) {
   state.currentPanel = name;
   Object.keys(panels).forEach(key => {
     if (panels[key]) {
-      panels[key].classList.toggle("active", key === name);
+      const isActive = key === name;
+      panels[key].classList.toggle("active", isActive);
+      // Nuclear option: explicitly set display to ensure panels are truly hidden/shown
+      panels[key].style.display = isActive ? "flex" : "none";
     }
   });
 
@@ -276,6 +409,11 @@ function showPanel(name) {
   headerButtons.forEach(btn => {
     btn.style.display = state.isLoggedIn ? "flex" : "none";
   });
+
+  // Reset auth form when returning to auth panel
+  if (name === "auth") {
+    resetAuthForm();
+  }
 }
 
 // ---- Profile ----
@@ -352,9 +490,11 @@ async function generateMessage() {
   state.isGenerating = true;
   state.generatedMessage = "";
   $("output-actions")?.classList.add("hidden");
+  const placeholder = $("output-placeholder");
+  if (placeholder) placeholder.style.display = "none";
 
   if ($("output-box")) {
-    $("output-box").innerHTML = '<span class="cursor-blink"></span>';
+    $("output-box").innerHTML = '<span style="color: var(--text-tertiary);">Thinking</span><span class="cursor-blink"></span>';
     $("output-box").classList.add("streaming");
   }
 
@@ -363,7 +503,7 @@ async function generateMessage() {
     generateBtn.disabled = true;
     generateBtn.innerHTML = '<span class="spin">⟳</span> Generating...';
   }
-  setStatus("loading", "Generating message...");
+  setStatus("loading", "Generating...");
 
   // Listen for stream updates
   const streamListener = (message) => {
@@ -408,19 +548,23 @@ async function generateMessage() {
       $("output-box").classList.remove("streaming");
     }
     $("output-actions")?.classList.remove("hidden");
-    setStatus("ready", "Message generated ✓");
+    setStatus("ready", "Ready");
     showToast("Message ready!", "success");
 
   } catch (error) {
     chrome.runtime.onMessage.removeListener(streamListener);
     showToast("Generation failed", "error");
     setStatus("error", "Failed");
+    if ($("output-box")) {
+      $("output-box").classList.remove("streaming");
+      $("output-box").innerHTML = '<span class="output-placeholder" id="output-placeholder">Your AI-generated message will appear here...</span>';
+    }
   } finally {
     state.isGenerating = false;
     if (generateBtn) {
       generateBtn.disabled = !state.profile;
       generateBtn.innerHTML = `
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
         </svg>
         Generate Message
@@ -444,7 +588,7 @@ async function handleSaveLead() {
   const saveLeadBtn = $("save-lead-btn");
   if (saveLeadBtn) {
     saveLeadBtn.disabled = true;
-    saveLeadBtn.innerHTML = '<span class="spin">⟳</span> Saving...';
+    saveLeadBtn.innerHTML = '<span class="spin">⟳</span> Save';
   }
 
   const extraFields = {
@@ -474,8 +618,9 @@ async function handleSaveLead() {
       setStatus("ready", "Lead saved ✓");
 
       if (saveLeadBtn) {
+        saveLeadBtn.disabled = false;
         saveLeadBtn.innerHTML = `
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
             <polyline points="17 21 17 13 7 13 7 21"/>
             <polyline points="7 3 7 8 15 8"/>
@@ -488,7 +633,7 @@ async function handleSaveLead() {
       if (saveLeadBtn) {
         saveLeadBtn.disabled = false;
         saveLeadBtn.innerHTML = `
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
             <polyline points="17 21 17 13 7 13 7 21"/>
             <polyline points="7 3 7 8 15 8"/>
@@ -502,7 +647,7 @@ async function handleSaveLead() {
     if (saveLeadBtn) {
       saveLeadBtn.disabled = false;
       saveLeadBtn.innerHTML = `
-        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
           <polyline points="17 21 17 13 7 13 7 21"/>
           <polyline points="7 3 7 8 15 8"/>
@@ -583,7 +728,7 @@ function renderTagFilters() {
   const tagsContainer = $("leads-tags-filter");
   if (!tagsContainer) return;
 
-  const allTags = new Set<string>();
+  const allTags = new Set();
   state.leads.forEach(lead => {
     (lead.tags || []).forEach((tag) => allTags.add(tag));
   });
@@ -686,42 +831,49 @@ function renderLeads() {
 
 function createLeadCard(lead) {
   const profile = lead.profile || {};
-  const name = profile.name || "Unknown";
-  const title = profile.title || "";
-  const company = profile.company || "";
-  const photoUrl = profile.photoUrl || "";
+  // Fallback chain: profile.name -> lead.name -> "Unknown"
+  const name = profile.name || lead.name || "Unknown";
+  const title = profile.title || lead.title || "";
+  const company = profile.company || lead.company || "";
+  const location = profile.location || lead.location || "";
+  const photoUrl = profile.photoUrl || lead.photo_url || "";
   const message = lead.message || "";
+  const profileUrl = profile.linkedinUrl || profile.profileUrl || lead.profile_url || "";
+
+  const initial = name && name !== "Unknown" ? name[0].toUpperCase() : "?";
 
   return `
-    <div class="lead-card" data-lead-id="${lead._id}">
+    <div class="lead-card" data-lead-id="${lead._id || lead.id}">
       <div class="lead-card-header">
-        <div class="profile-avatar" style="width: 48px; height: 48px; border-radius: 50%; background: linear-gradient(135deg, #0a66c2, #7c3aed); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 18px; flex-shrink: 0; overflow: hidden;">
-          ${photoUrl ? `<img src="${photoUrl}" alt="${name}" style="width: 100%; height: 100%; object-fit: cover;" />` : name[0]?.toUpperCase() || "?"}
+        <div class="profile-avatar" style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #0a66c2, #7c3aed); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 14px; flex-shrink: 0; overflow: hidden;">
+          ${photoUrl ? `<img src="${photoUrl}" alt="${name}" style="width: 100%; height: 100%; object-fit: cover;" />` : initial}
         </div>
         <div style="flex: 1; min-width: 0;">
-          <div style="font-weight: 600; font-size: 15px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(name)}</div>
-          ${title ? `<div style="font-size: 12px; color: #00000099; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(title)}</div>` : ""}
-          ${company ? `<div style="font-size: 12px; color: #00000099; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(company)}</div>` : ""}
+          <div style="font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(name)}</div>
+          ${title ? `<div style="font-size: 11px; color: #00000099; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(title)}</div>` : ""}
+          ${company ? `<div style="font-size: 11px; color: #00000099; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(company)}</div>` : ""}
+          ${!title && !company && location ? `<div style="font-size: 11px; color: #00000099; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(location)}</div>` : ""}
         </div>
       </div>
       <div class="lead-card-body">
         ${message ? `
-          <div style="padding: 12px 16px; background: #f3f6f8; border-radius: 8px; margin: 0 16px 12px; font-size: 13px; line-height: 1.6;">
+          <div style="padding: 8px 10px; background: #f3f6f8; border-radius: 6px; margin: 0 10px 8px; font-size: 12px; line-height: 1.5;">
             ${escapeHtml(message)}
           </div>
         ` : ""}
+        ${profileUrl ? `<a href="${profileUrl}" target="_blank" style="font-size: 11px; color: var(--primary); text-decoration: none; margin: 0 10px 8px; display: inline-block;">View Profile</a>` : ""}
       </div>
       <div class="lead-actions">
         ${message ? `
-          <button class="btn btn-secondary btn-insert-message" style="flex: 1; padding: 8px 12px; font-size: 12px;">
-            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <button class="btn btn-secondary btn-insert-message" style="flex: 1; padding: 5px 8px; font-size: 11px;">
+            <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path d="M12 5v14M5 12l7 7 7-7"/>
             </svg>
             Insert
           </button>
         ` : ""}
-        <button class="btn-icon btn-delete-lead" style="color: #cc1016;">
-          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <button class="btn-icon btn-delete-lead" style="color: #cc1016; width: 24px; height: 24px;">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
           </svg>
@@ -762,34 +914,46 @@ async function loadNotes() {
 
     if (!token) {
       notesList.innerHTML = `
-        <div class="text-center text-muted" style="padding: 48px 24px;">
-          <p>Please sign in to view notes</p>
+        <div class="text-center text-muted" style="padding: 32px 20px;">
+          <p style="font-size: 13px;">Please sign in to view notes</p>
         </div>
       `;
       return;
     }
 
+    console.log("📡 Fetching notes from API...");
     const response = await fetch(`${API_BASE_URL}/api/notes`, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
+    console.log("📡 Notes response status:", response.status);
+
     if (!response.ok) {
-      throw new Error("Failed to load notes");
+      const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+      console.error("❌ Notes API error:", response.status, errorData);
+      const detailMsg = errorData.details || errorData.error || `HTTP ${response.status}`;
+      throw new Error(detailMsg);
     }
 
     const data = await response.json();
-    state.notes = data.notes || [];
+    console.log("📡 Notes data:", data);
+    state.notes = data.user_notes || data.notes || [];
 
     renderNotes();
 
   } catch (error) {
     console.error("Error loading notes:", error);
+    const errMsg = error?.message || "Failed to load notes";
+    const isSetupError = errMsg.includes("table not set up") || errMsg.includes("does not exist");
     if (notesList) {
       notesList.innerHTML = `
-        <div class="text-center text-muted" style="padding: 48px 24px;">
-          <p>Failed to load notes</p>
+        <div class="text-center text-muted" style="padding: 32px 20px;">
+          <p style="font-size: 13px; margin-bottom: 8px; color: ${isSetupError ? 'var(--danger)' : 'inherit'};">${escapeHtml(errMsg)}</p>
+          ${isSetupError ? `<p style="font-size: 11px; margin-bottom: 8px;">Run the SQL in your Supabase dashboard, then restart the server.</p>` : ""}
+          <button class="btn btn-secondary" id="retry-notes-btn" style="padding: 4px 10px; font-size: 11px; margin-top: 8px;">Retry</button>
         </div>
       `;
+      $("retry-notes-btn")?.addEventListener("click", loadNotes);
     }
   }
 }
@@ -800,15 +964,15 @@ function renderNotes() {
 
   if (state.notes.length === 0) {
     notesList.innerHTML = `
-      <div class="text-center text-muted" style="padding: 48px 24px;">
-        <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom: 12px;">
+      <div class="text-center text-muted" style="padding: 32px 20px;">
+        <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom: 8px;">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
           <polyline points="14 2 14 8 20 8"/>
           <line x1="16" y1="13" x2="8" y2="13"/>
           <line x1="16" y1="17" x2="8" y2="17"/>
         </svg>
-        <div style="font-weight: 600; margin-bottom: 4px;">No notes yet</div>
-        <div style="font-size: 12px;">Create your first note!</div>
+        <div style="font-weight: 600; margin-bottom: 2px; font-size: 13px;">No notes yet</div>
+        <div style="font-size: 11px;">Create your first note!</div>
       </div>
     `;
     return;
@@ -819,7 +983,8 @@ function renderNotes() {
   notesList.querySelectorAll(".note-card").forEach(card => {
     const noteId = card.dataset.noteId;
     card.addEventListener("click", () => {
-      showToast("Note: " + (state.notes.find(n => n.id === noteId)?.title || ""), "success");
+      const note = state.notes.find(n => n.id === noteId);
+      if (note) openNoteModal(note);
     });
   });
 }
@@ -838,33 +1003,132 @@ function createNoteCard(note) {
   `;
 }
 
-async function handleCreateNote() {
-  const title = prompt("Note title:");
-  if (!title) return;
+let currentEditingNoteId = null;
 
-  const content = prompt("Note content (optional):") || "";
+function openNoteModal(note = null) {
+  const modal = $("note-modal");
+  const titleInput = $("note-title");
+  const headerInput = $("note-header");
+  const contentInput = $("note-content");
+  const tagsInput = $("note-tags-input");
+  const deleteBtn = $("delete-note-btn");
+  const modalTitle = $("note-modal-title");
+
+  if (!modal) return;
+
+  if (note) {
+    currentEditingNoteId = note.id;
+    modalTitle.textContent = "Edit Note";
+    if (titleInput) titleInput.value = note.title || "";
+    if (headerInput) headerInput.value = note.header || "";
+    if (contentInput) contentInput.value = note.content || "";
+    if (tagsInput) tagsInput.value = (note.tags || []).join(", ");
+    if (deleteBtn) deleteBtn.style.display = "inline-flex";
+  } else {
+    currentEditingNoteId = null;
+    modalTitle.textContent = "New Note";
+    if (titleInput) titleInput.value = "";
+    if (headerInput) headerInput.value = "";
+    if (contentInput) contentInput.value = "";
+    if (tagsInput) tagsInput.value = "";
+    if (deleteBtn) deleteBtn.style.display = "none";
+  }
+
+  modal.classList.remove("hidden");
+  modal.style.display = "flex";
+  if (titleInput) titleInput.focus();
+}
+
+function closeNoteModal() {
+  const modal = $("note-modal");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.style.display = "none";
+  }
+  currentEditingNoteId = null;
+}
+
+async function handleSaveNote() {
+  const title = $("note-title")?.value?.trim();
+  const header = $("note-header")?.value?.trim();
+  const content = $("note-content")?.value?.trim();
+  const tagsStr = $("note-tags-input")?.value?.trim();
+  const tags = tagsStr ? tagsStr.split(",").map(t => t.trim()).filter(Boolean) : [];
+
+  if (!title) {
+    showToast("Title is required", "error");
+    return;
+  }
+
+  const saveBtn = $("save-note-btn");
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+  }
 
   try {
     const { token } = await sendBg({ type: "GET_AUTH_TOKEN" });
 
-    const response = await fetch(`${API_BASE_URL}/api/notes`, {
-      method: "POST",
+    const url = currentEditingNoteId
+      ? `${API_BASE_URL}/api/notes`
+      : `${API_BASE_URL}/api/notes`;
+    const method = currentEditingNoteId ? "PATCH" : "POST";
+    const body = currentEditingNoteId
+      ? { id: currentEditingNoteId, title, header, content, tags }
+      : { title, header, content, tags };
+
+    const response = await fetch(url, {
+      method,
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ title, content }),
+      body: JSON.stringify(body),
     });
 
     if (response.ok) {
-      showToast("Note created!", "success");
+      showToast(currentEditingNoteId ? "Note updated!" : "Note created!", "success");
+      closeNoteModal();
       await loadNotes();
     } else {
-      showToast("Failed to create note", "error");
+      const data = await response.json().catch(() => ({}));
+      showToast(data.error || "Failed to save note", "error");
     }
   } catch (error) {
-    showToast("Failed to create note", "error");
+    showToast("Failed to save note", "error");
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Save";
+    }
   }
+}
+
+async function handleDeleteNote() {
+  if (!currentEditingNoteId) return;
+  if (!confirm("Delete this note?")) return;
+
+  try {
+    const { token } = await sendBg({ type: "GET_AUTH_TOKEN" });
+    const response = await fetch(`${API_BASE_URL}/api/notes?id=${currentEditingNoteId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (response.ok) {
+      showToast("Note deleted", "success");
+      closeNoteModal();
+      await loadNotes();
+    } else {
+      showToast("Failed to delete note", "error");
+    }
+  } catch (error) {
+    showToast("Failed to delete note", "error");
+  }
+}
+
+async function handleCreateNote() {
+  openNoteModal();
 }
 
 // ---- Upgrade ----

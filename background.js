@@ -334,6 +334,11 @@ async function insertMessageInTab(text, sendResponse) {
 async function getStoredToken() {
   return new Promise((resolve) => {
     chrome.storage.local.get(["authToken"], (result) => {
+      if (chrome.runtime.lastError) {
+        console.error("Storage read error:", chrome.runtime.lastError);
+        resolve(null);
+        return;
+      }
       resolve(result.authToken || null);
     });
   });
@@ -341,6 +346,12 @@ async function getStoredToken() {
 
 function getAuthToken(sendResponse) {
   chrome.storage.local.get(["authToken", "userEmail"], (result) => {
+    if (chrome.runtime.lastError) {
+      console.error("GET_AUTH_TOKEN storage error:", chrome.runtime.lastError);
+      sendResponse({ token: null, email: null, error: chrome.runtime.lastError.message });
+      return;
+    }
+    console.log("GET_AUTH_TOKEN:", result.authToken ? "token exists" : "no token");
     sendResponse({
       token: result.authToken || null,
       email: result.userEmail || null,
@@ -350,12 +361,24 @@ function getAuthToken(sendResponse) {
 
 function setAuthToken(token, sendResponse) {
   chrome.storage.local.set({ authToken: token }, () => {
+    if (chrome.runtime.lastError) {
+      console.error("SET_AUTH_TOKEN storage error:", chrome.runtime.lastError);
+      sendResponse({ success: false, error: chrome.runtime.lastError.message });
+      return;
+    }
+    console.log("SET_AUTH_TOKEN: token saved");
     sendResponse({ success: true });
   });
 }
 
 function clearAuthToken(sendResponse) {
   chrome.storage.local.remove(["authToken", "userEmail"], () => {
+    if (chrome.runtime.lastError) {
+      console.error("CLEAR_AUTH_TOKEN storage error:", chrome.runtime.lastError);
+      sendResponse({ success: false, error: chrome.runtime.lastError.message });
+      return;
+    }
+    console.log("CLEAR_AUTH_TOKEN: token removed");
     sendResponse({ success: true });
   });
 }
