@@ -1,19 +1,513 @@
 // content.js - Injected into linkedin.com/pages
 // Scrapes profile data and communicates with popup via background service worker
+// IMPROVED: Multi-strategy scraping, JSON-LD support, contact info extraction
 
 (function () {
   "use strict";
 
-  console.log("✅ LinkedIn AI Outreach content script loaded");
+  console.log("✅ LinkedIn AI Outreach content script loaded (improved v2)");
   console.log("📍 Current page:", window.location.href);
-  console.log("🔍 Is profile page:", /linkedin\.com\/in\//.test(window.location.href));
 
-  /**
-   * Extract profile data from the current LinkedIn profile page DOM
-   * Improved for 2024-2025 LinkedIn structure
-   */
-  function scrapeProfileData() {
-    const profile = {
+  // ─── Utility: wait for element ───
+  function waitForElement(selector, timeout = 5000) {
+    return new Promise((resolve) => {
+      const el = document.querySelector(selector);
+      if (el) return resolve(el);
+      const observer = new MutationObserver(() => {
+        const el = document.querySelector(selector);
+        if (el) {
+          observer.disconnect();
+          resolve(el);
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      setTimeout(() => {
+        observer.disconnect();
+        resolve(null);
+      }, timeout);
+    });
+  }
+
+  // ─── Utility: XPath query ───
+  function $x(path) {
+    const results = [];
+    const query = document.evaluate(path, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+    for (let i = 0; i < query.snapshotLength; i++) {
+      results.push(query.snapshotItem(i));
+    }
+    return results;
+  }
+
+  // ─── Utility: get text from element ───
+  function getText(el) {
+    return el?.innerText?.trim() || el?.textContent?.trim() || "";
+  }
+
+  // ─── Strategy 1: JSON-LD Structured Data ───
+  // LinkedIn embeds rich structured data that is very reliable
+  function scrapeFromJSONLD() {
+    const profile = { name: "", title: "", company: "", location: "", about: "", photoUrl: "", email: "", phone: "" };
+    try {
+      const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+      for (const script of scripts) {
+        let data;
+        try { data = JSON.parse(script.innerText); } catch { continue; }
+
+        // Handle both single object and @graph arrays
+        const graphs = Array.isArray(data["@graph"]) ? data["@graph"] : [data];
+
+        for (const item of graphs) {
+          if (item["@type"] === "Person" || (Array.isArray(item["@type"]) && item["@type"].includes("Person"))) {
+            profile.name = item.name || "";
+            profile.photoUrl = item.image?.contentUrl || item.image?.url || "";
+
+            // Job title / worksFor
+            if (item.jobTitle) profile.title = item.jobTitle;
+            if (item.worksFor?.name) profile.company = item.worksFor.name;
+
+            // Location
+            if (item.address?.addressLocality) {
+              profile.location = item.address.addressLocality;
+              if (item.address.addressCountry) profile.location += ", " + item.address.addressCountry;
+            }
+
+            // Contact info (rarely present in JSON-LD)
+            if (item.email) profile.email = item.email;
+            if (item.telephone) profile.phone = item.telephone;
+
+            // Description / about
+            if (item.description) profile.about = item.description;
+          }
+        }
+      }
+    } catch (e) {
+      console.log("JSON-LD parsing error:", e);
+    }
+    return profile;
+  }
+
+  // ─── Strategy 2: Meta tags ───
+  function scrapeFromMeta() {
+    const profile = { name: "", title: "", photoUrl: "" };
+    try {
+      const ogTitle = document.querySelector('meta[property="og:title"]');
+      if (ogTitle?.content) profile.name = ogTitle.content.split(" - ")[0].trim();
+
+      const ogImage = document.querySelector('meta[property="og:image"]');
+      if (ogImage?.content) profile.photoUrl = ogImage.content;
+
+      const titleTag = document.querySelector('title');
+      if (titleTag?.innerText) {
+        const parts = titleTag.innerText.split(" - ");
+        if (parts[0] && !profile.name) profile.name = parts[0].trim();
+        if (parts[1] && !profile.title) profile.title = parts[1].trim();
+      }
+    } catch (e) {
+      console.log("Meta scraping error:", e);
+    }
+    return profile;
+  }
+
+  // ─── Strategy 3: DOM selectors (multi-fallback) ───
+  function scrapeFromDOM() {
+    const profile = { name: "", title: "", company: "", location: "", about: "", photoUrl: "" };
+
+    try {
+      // --- NAME ---
+      // Try h1 first (most reliable for name)
+      const h1 = document.querySelector("h1");
+      if (h1) profile.name = getText(h1);
+
+      // Fallback name selectors
+      if (!profile.name) {
+        const nameSelectors = [
+          "[data-test-id='person-name']",
+          ".top-card-layout__title",
+          ".profile-topcard__name",
+          ".pv-top-card--list .text-heading-xlarge",
+          ".text-heading-xlarge",
+          "[class*='artdeco-entity-lockup__title']",
+          "span[aria-label*='name']",
+          // 2024-2025 patterns
+          "div[class*='profile-card'] h1",
+          "section[class*='top-card'] h1",
+        ];
+        for (const sel of nameSelectors) {
+          const el = document.querySelector(sel);
+          if (el) {
+            const text = getText(el);
+            if (text && text.length > 1 && text.length < 100) {
+              profile.name = text;
+              break;
+            }
+          }
+        }
+      }
+
+      // --- TOP CARD SCOPE ---
+      const topCard = document.querySelector(
+        ".pv-top-card, .top-card-layout, .profile-topcard, [data-test-id='profile-topcard'], section.top-card-layout, div[class*='top-card']"
+      );
+      const scope = topCard || document;
+
+      // --- TITLE / HEADLINE ---
+      const titleSelectors = [
+        "[data-test-id='person-headline']",
+        ".top-card-layout__headline",
+        ".profile-topcard__headline",
+        ".text-body-medium.break-words",
+        "div[class*='headline']",
+        "[class*='artdeco-entity-lockup__subtitle']",
+        // XPath: div immediately after h1 inside same parent
+      ];
+      for (const sel of titleSelectors) {
+        const el = scope.querySelector(sel);
+        if (el) {
+          const text = getText(el);
+          if (text && text.length > 2 && text.length < 300 && text !== profile.name) {
+            profile.title = text;
+            break;
+          }
+        }
+      }
+
+      // Try sibling-of-h1 approach
+      if (!profile.title && h1) {
+        const parent = h1.parentElement;
+        if (parent) {
+          const siblings = parent.querySelectorAll("div, span");
+          for (const sib of siblings) {
+            if (sib === h1) continue;
+            const text = getText(sib);
+            if (text && text.length > 5 && text.length < 300 && text !== profile.name && !text.includes("Connection")) {
+              profile.title = text;
+              break;
+            }
+          }
+        }
+      }
+
+      // --- COMPANY ---
+      const companySelectors = [
+        "button[aria-label*='Current company']",
+        "a[aria-label*='Current company']",
+        "[data-test-id='current-company']",
+        ".top-card-layout__first-subline",
+        "span[class*='company-name']",
+        "[class*='artdeco-entity-lockup__subtitle']",
+      ];
+      for (const sel of companySelectors) {
+        const el = scope.querySelector(sel);
+        if (el) {
+          const text = getText(el);
+          const aria = el.getAttribute("aria-label") || "";
+          const match = aria.match(/Current company[\s:]*(.+)/i);
+          if (match) {
+            profile.company = match[1].trim();
+            break;
+          }
+          if (text && text.length > 1 && text.length < 150 && text !== profile.name && text !== profile.title) {
+            profile.company = text;
+            break;
+          }
+        }
+      }
+
+      // Fallback: first experience item
+      if (!profile.company) {
+        const expSection = document.querySelector("#experience, section[data-section='experience'], div[id*='experience']");
+        if (expSection) {
+          const firstItem = expSection.querySelector("li, .experience-item, [data-test-id='experience-item'], div[class*='experience']");
+          if (firstItem) {
+            const companyEl = firstItem.querySelector(
+              ".t-14.t-normal, .pv-entity__secondary-title, span[class*='company'], [data-anonymize='company-name'], span[class*='subtitle']"
+            );
+            if (companyEl) {
+              const text = getText(companyEl);
+              if (text && text.length < 150) profile.company = text;
+            }
+          }
+        }
+      }
+
+      // --- LOCATION ---
+      const locationSelectors = [
+        "[data-test-id='person-location']",
+        ".top-card-layout__first-subline",
+        ".profile-topcard__location",
+        ".text-body-small.inline.t-black--light.break-words",
+        "[data-anonymize='location']",
+        "span[class*='location']",
+      ];
+      for (const sel of locationSelectors) {
+        const el = scope.querySelector(sel);
+        if (el) {
+          const text = getText(el);
+          if (text && /^[A-Za-z0-9\s,\.()-]+$/.test(text) && text.length < 100) {
+            profile.location = text;
+            break;
+          }
+        }
+      }
+
+      // --- ABOUT ---
+      const aboutSection = document.querySelector("#about, section[data-section='summary'], div[id*='about']");
+      if (aboutSection) {
+        const aboutSelectors = [
+          ".inline-show-more-text",
+          ".pv-shared-text-with-see-more",
+          "span[aria-hidden='true']",
+          ".visually-hidden",
+          "div[class*='about'] p",
+          "div[class*='summary'] p",
+        ];
+        for (const sel of aboutSelectors) {
+          const el = aboutSection.querySelector(sel);
+          if (el) {
+            const text = getText(el);
+            if (text && text.length > 10) {
+              profile.about = text.slice(0, 800);
+              break;
+            }
+          }
+        }
+      }
+
+      // --- PHOTO ---
+      const photoSelectors = [
+        ".pv-top-card-profile-picture__image",
+        "img[class*='profile-photo']",
+        "img[class*='top-card__photo']",
+        ".profile-photo-edit__preview",
+        "[data-test-id='profile-photo'] img",
+        ".top-card-layout__entity-image",
+      ];
+      for (const sel of photoSelectors) {
+        const el = scope.querySelector(sel);
+        if (el?.src) {
+          profile.photoUrl = el.src;
+          break;
+        }
+      }
+      // Fallback: any reasonably-sized image in top card
+      if (!profile.photoUrl && topCard) {
+        const imgs = topCard.querySelectorAll("img");
+        for (const img of imgs) {
+          const rect = img.getBoundingClientRect();
+          if (rect.width >= 80 && rect.width <= 400 && rect.height >= 80 && rect.height <= 400 && img.src) {
+            profile.photoUrl = img.src;
+            break;
+          }
+        }
+      }
+
+    } catch (e) {
+      console.error("DOM scraping error:", e);
+    }
+
+    return profile;
+  }
+
+  // ─── Strategy 3b: Obfuscated / Hashed Class Names (LinkedIn 2024-2025) ───
+  // LinkedIn uses CSS Modules with hashed class names like _12a7eae6.
+  // We detect fields by text heuristics instead of class names.
+  function scrapeFromObfuscated() {
+    const profile = { name: "", title: "", company: "", location: "" };
+    try {
+      const topCard = document.querySelector(
+        ".pv-top-card, .top-card-layout, .profile-topcard, [data-test-id='profile-topcard'], section.top-card-layout, div[class*='top-card']"
+      );
+      const scope = topCard || document.body;
+
+      // Gather all <p> tags inside the top card (LinkedIn often uses <p> for text blocks)
+      const allP = Array.from(scope.querySelectorAll("p"));
+      const texts = allP.map(el => ({
+        el,
+        text: getText(el),
+        len: getText(el).length,
+      })).filter(t => t.len > 2 && t.len < 400);
+
+      // --- NAME ---
+      const h1 = document.querySelector("h1");
+      if (h1) profile.name = getText(h1);
+
+      // --- COMPANY: text containing "·" (middle dot / separator) ---
+      const companyCandidate = texts.find(t => t.text.includes("·") || t.text.includes("|"));
+      if (companyCandidate) {
+        profile.company = companyCandidate.text;
+      }
+
+      // --- TITLE: the longest <p> that is NOT the name and NOT the company ---
+      const titleCandidates = texts
+        .filter(t => t.text !== profile.name && t.text !== profile.company && t.len > 15 && t.len < 350)
+        .sort((a, b) => b.len - a.len);
+      if (titleCandidates.length > 0) {
+        profile.title = titleCandidates[0].text;
+      }
+
+      // --- LOCATION: look for City, Country / City, State patterns ---
+      const locationCandidate = texts.find(t => {
+        const txt = t.text;
+        return /^[A-Za-z\s]+,\s*[A-Za-z\s]+$/.test(txt) && txt.length < 80 && txt !== profile.name;
+      });
+      if (locationCandidate) {
+        profile.location = locationCandidate.text;
+      }
+
+      console.log("📊 Obfuscated-class profile:", profile);
+    } catch (e) {
+      console.log("Obfuscated scraping error:", e);
+    }
+    return profile;
+  }
+
+  // ─── Strategy 4: ARIA labels ───
+  function scrapeFromARIA() {
+    const profile = { title: "", company: "", location: "" };
+    try {
+      const all = Array.from(document.querySelectorAll("*[aria-label]"));
+      const labels = all.map(el => ({
+        label: (el.getAttribute("aria-label") || "").toLowerCase(),
+        text: getText(el),
+      }));
+
+      const headline = labels.find(l => l.label.includes("headline") || l.label.includes("title") || l.label.includes("current position"));
+      if (headline?.text) profile.title = headline.text;
+
+      const company = labels.find(l => l.label.includes("current company") || l.label.includes("company"));
+      if (company?.text) profile.company = company.text;
+
+      const location = labels.find(l => l.label.includes("location") || l.label.includes("area") || l.label.includes("region"));
+      if (location?.text) profile.location = location.text;
+    } catch (e) {
+      console.log("ARIA scraping error:", e);
+    }
+    return profile;
+  }
+
+  // ─── Strategy 5: LinkedIn embedded `window.__data` or inline scripts ───
+  function scrapeFromInlineData() {
+    const profile = { name: "", title: "", company: "", location: "", photoUrl: "" };
+    try {
+      // Some LinkedIn pages embed initial data in script tags
+      const scripts = document.querySelectorAll("script:not([src])");
+      for (const script of scripts) {
+        const text = script.innerText;
+        if (text.includes("firstName") && text.includes("lastName")) {
+          const firstMatch = text.match(/"firstName"\s*:\s*"([^"]+)"/);
+          const lastMatch = text.match(/"lastName"\s*:\s*"([^"]+)"/);
+          if (firstMatch && lastMatch) {
+            profile.name = `${firstMatch[1]} ${lastMatch[1]}`.trim();
+          }
+          const titleMatch = text.match(/"headline"\s*:\s*"([^"]+)"/);
+          if (titleMatch) profile.title = titleMatch[1];
+          const locMatch = text.match(/"locationName"\s*:\s*"([^"]+)"/);
+          if (locMatch) profile.location = locMatch[1];
+          const imgMatch = text.match(/"profilePicture"[^}]*"displayImage"\s*:\s*"([^"]+)"/);
+          if (imgMatch) profile.photoUrl = imgMatch[1];
+          break;
+        }
+      }
+    } catch (e) {
+      console.log("Inline data scraping error:", e);
+    }
+    return profile;
+  }
+
+  // ─── Contact Info Extraction ───
+  // LinkedIn hides email/phone behind a "Contact info" modal.
+  async function extractContactInfo() {
+    const result = { email: "", phone: "", website: "" };
+    try {
+      // Check if contact info section is already open/visible
+      const contactSection = document.querySelector(".pv-contact-info, [data-test-id='contact-info'], div[class*='contact-info']");
+      if (contactSection) {
+        const emailLink = contactSection.querySelector('a[href^="mailto:"]');
+        if (emailLink) result.email = emailLink.href.replace("mailto:", "");
+        const phoneLink = contactSection.querySelector('a[href^="tel:"]');
+        if (phoneLink) result.phone = phoneLink.href.replace("tel:", "");
+        const webLink = contactSection.querySelector('a[href^="http"]');
+        if (webLink) result.website = webLink.href;
+        return result;
+      }
+
+      // Try to find and click "Contact info" button
+      const contactBtnSelectors = [
+        "button[aria-label*='Contact info']",
+        "a[aria-label*='Contact info']",
+        "button[aria-label*='contact information']",
+        "a[href*='overlay/contact-info']",
+        "button[id*='contact-info']",
+      ];
+
+      let contactBtn = null;
+      for (const sel of contactBtnSelectors) {
+        contactBtn = document.querySelector(sel);
+        if (contactBtn) break;
+      }
+
+      // Try finding by text content
+      if (!contactBtn) {
+        const allBtns = document.querySelectorAll("button, a");
+        for (const btn of allBtns) {
+          const text = getText(btn).toLowerCase();
+          if (text === "contact info" || text.includes("contact information")) {
+            contactBtn = btn;
+            break;
+          }
+        }
+      }
+
+      if (contactBtn) {
+        console.log("📇 Clicking Contact info button...");
+        contactBtn.click();
+        // Wait for modal to appear
+        await new Promise(r => setTimeout(r, 1200));
+
+        const modal = document.querySelector(
+          ".pv-contact-info, [data-test-id='contact-info'], div[role='dialog'] div[class*='contact'], .artdeco-modal__content"
+        );
+        if (modal) {
+          // Email
+          const emailEl = modal.querySelector('a[href^="mailto:"]');
+          if (emailEl) result.email = emailEl.href.replace("mailto:", "");
+
+          // Phone
+          const phoneEl = modal.querySelector('a[href^="tel:"]');
+          if (phoneEl) result.phone = phoneEl.href.replace("tel:", "");
+
+          // Website
+          const webEl = modal.querySelector('a[href^="http"]:not([href*="linkedin.com"])');
+          if (webEl) result.website = webEl.href;
+
+          // Also try text-based extraction
+          const sections = modal.querySelectorAll('section, div[class*="contact-info__"]');
+          for (const sec of sections) {
+            const header = sec.querySelector("h3, .pv-contact-info__header");
+            const valueEl = sec.querySelector("a, span, .pv-contact-info__ci-container");
+            if (header && valueEl) {
+              const headerText = getText(header).toLowerCase();
+              const value = getText(valueEl);
+              if (headerText.includes("email") && !result.email) result.email = value;
+              if (headerText.includes("phone") && !result.phone) result.phone = value;
+              if (headerText.includes("website") && !result.website) result.website = value;
+            }
+          }
+
+          // Close modal
+          const closeBtn = document.querySelector("button[aria-label='Dismiss'], .artdeco-modal__dismiss, button[class*='dismiss']");
+          if (closeBtn) closeBtn.click();
+        }
+      }
+    } catch (e) {
+      console.error("Contact info extraction error:", e);
+    }
+    return result;
+  }
+
+  // ─── Merge profiles (non-empty values win) ───
+  function mergeProfiles(...profiles) {
+    const merged = {
       name: "",
       title: "",
       company: "",
@@ -24,664 +518,204 @@
       photoUrl: "",
       email: "",
       phone: "",
-      website: ""
+      website: "",
     };
+    for (const p of profiles) {
+      if (!p) continue;
+      for (const key of Object.keys(merged)) {
+        if (p[key] && String(p[key]).trim().length > 0) {
+          merged[key] = String(p[key]).trim();
+        }
+      }
+    }
+    return merged;
+  }
 
-    console.log("🔍 Scraping LinkedIn profile...");
+  // ─── Main scrape function ───
+  async function scrapeProfileData() {
+    console.log("🔍 Starting improved profile scrape...");
 
+    // Run all strategies in parallel
+    const [jsonld, meta, dom, obf, aria, inline] = await Promise.all([
+      Promise.resolve(scrapeFromJSONLD()),
+      Promise.resolve(scrapeFromMeta()),
+      Promise.resolve(scrapeFromDOM()),
+      Promise.resolve(scrapeFromObfuscated()),
+      Promise.resolve(scrapeFromARIA()),
+      Promise.resolve(scrapeFromInlineData()),
+    ]);
+
+    console.log("📊 JSON-LD:", jsonld);
+    console.log("📊 Meta:", meta);
+    console.log("📊 DOM:", dom);
+    console.log("📊 Obfuscated:", obf);
+    console.log("📊 ARIA:", aria);
+    console.log("📊 Inline:", inline);
+
+    let profile = mergeProfiles(jsonld, inline, dom, obf, aria, meta);
+
+    // Try to extract contact info (email/phone)
+    console.log("📇 Attempting contact info extraction...");
+    const contact = await extractContactInfo();
+    console.log("📊 Contact info:", contact);
+    profile = mergeProfiles(profile, contact);
+
+    // Clean up name if it contains pipe or dash separators
+    if (profile.name) {
+      profile.name = profile.name.split("|")[0].split(" - ")[0].trim();
+    }
+
+    // Ensure URL is clean
     try {
-      // === NAME ===
-      // LinkedIn 2024-2025: name is usually the first <h1> on the page
-      const h1 = document.querySelector("h1");
-      if (h1) {
-        profile.name = h1.innerText?.trim() || "";
-      }
-      // Fallback: look for specific name classes
-      if (!profile.name) {
-        const nameEl = document.querySelector(".text-heading-xlarge, .inline.t-24.t-black.t-bold.break-words, [data-anonymize='person-name']");
-        if (nameEl) profile.name = nameEl.innerText?.trim() || "";
-      }
+      const url = new URL(window.location.href);
+      profile.profileUrl = url.origin + url.pathname;
+      profile.linkedinUrl = profile.profileUrl;
+    } catch {}
 
-      // === TOP CARD AREA ===
-      // Find the main profile top card to scope our searches
-      const topCard = document.querySelector(
-        ".pv-top-card, .top-card-layout, .profile-topcard, [data-test-id='profile-topcard']"
-      );
-      const scope = topCard || document.body;
-
-      // === TITLE / HEADLINE ===
-      // The headline is usually a div with class containing "text-body-medium" right after the name
-      // Try to find it relative to the name element
-      if (h1) {
-        // Look at siblings and nearby elements
-        let sibling = h1.parentElement?.nextElementSibling || h1.nextElementSibling;
-        for (let i = 0; i < 3 && sibling; i++) {
-          const text = sibling.innerText?.trim();
-          if (text && text.length > 2 && text.length < 200 && !text.includes("Connection")) {
-            profile.title = text;
-            break;
-          }
-          sibling = sibling.nextElementSibling;
-        }
-      }
-      // Fallback: search within top card for headline patterns
-      if (!profile.title) {
-        const headlineEls = scope.querySelectorAll(".text-body-medium, [data-anonymize='headline'], div[class*='headline']");
-        for (const el of headlineEls) {
-          const text = el.innerText?.trim();
-          if (text && text.length > 2 && text.length < 200 && text !== profile.name) {
-            profile.title = text;
-            break;
-          }
-        }
-      }
-
-      // === COMPANY ===
-      // Look for "Current company" aria-label or experience section
-      const companyBtn = scope.querySelector("button[aria-label*='Current company'], a[aria-label*='Current company']");
-      if (companyBtn) {
-        profile.company = companyBtn.innerText?.trim() || companyBtn.getAttribute("aria-label")?.replace(/Current company\s*/, "") || "";
-      }
-      // Fallback: search for company in experience section
-      if (!profile.company) {
-        const expSection = document.querySelector("#experience, section[data-section='experience']");
-        if (expSection) {
-          const firstExp = expSection.querySelector("li, .experience-item, [data-test-id='experience-item']");
-          if (firstExp) {
-            const companyEl = firstExp.querySelector(".t-14.t-normal, .pv-entity__secondary-title, span[class*='company'], [data-anonymize='company-name']");
-            if (companyEl) profile.company = companyEl.innerText?.trim() || "";
-          }
-        }
-      }
-      // Another fallback: look for text near the title that looks like a company
-      if (!profile.company && profile.title) {
-        const allSpans = scope.querySelectorAll("span, div");
-        for (const el of allSpans) {
-          const text = el.innerText?.trim();
-          if (text && text !== profile.name && text !== profile.title && text.length > 2 && text.length < 80) {
-            // Check if parent has company-related classes
-            const parentClass = el.parentElement?.className || "";
-            if (parentClass.includes("company") || parentClass.includes("experience") || el.closest("[data-test-id='experience-item']")) {
-              profile.company = text;
-              break;
-            }
-          }
-        }
-      }
-
-      // === LOCATION ===
-      const locationEl = scope.querySelector(
-        ".text-body-small.inline.t-black--light.break-words, [data-anonymize='location'], span[class*='location'], .pv-top-card__distance-badge + *"
-      );
-      if (locationEl) {
-        profile.location = locationEl.innerText?.trim() || "";
-      }
-      // Fallback: search for location pattern (City, State or City, Country)
-      if (!profile.location) {
-        const allText = scope.querySelectorAll("span, div");
-        for (const el of allText) {
-          const text = el.innerText?.trim();
-          if (text && /^[A-Za-z\s]+,\s*[A-Za-z\s]+$/.test(text) && text.length < 60) {
-            profile.location = text;
-            break;
-          }
-        }
-      }
-
-      // === ABOUT / SUMMARY ===
-      const aboutSection = document.querySelector("#about, section[data-section='summary']");
-      if (aboutSection) {
-        const aboutText = aboutSection.querySelector(".inline-show-more-text, .pv-shared-text-with-see-more, span[aria-hidden='true'], .visually-hidden");
-        if (aboutText) {
-          profile.about = aboutText.innerText?.trim()?.slice(0, 500) || "";
-        }
-      }
-
-      // === PHOTO ===
-      // LinkedIn 2024 uses specific image classes
-      const photoEl = scope.querySelector(
-        ".pv-top-card-profile-picture__image, img[class*='profile-photo'], img[class*='top-card__photo'], .profile-photo-edit__preview"
-      );
-      if (photoEl?.src) {
-        profile.photoUrl = photoEl.src;
-      }
-      // Fallback: any image inside the top card that's square/circular and reasonably sized
-      if (!profile.photoUrl) {
-        const images = scope.querySelectorAll("img");
-        for (const img of images) {
-          const rect = img.getBoundingClientRect();
-          if (rect.width >= 100 && rect.width <= 400 && rect.height >= 100 && rect.height <= 400 && img.src) {
-            profile.photoUrl = img.src;
-            break;
-          }
-        }
-      }
-
-      // === CONTACT INFO (email, phone, website) ===
-      // These require clicking "Contact info" button, so we usually can't get them
-      // But check if they're already in the DOM
-      const contactSection = document.querySelector(".pv-contact-info, [data-test-id='contact-info']");
-      if (contactSection) {
-        const emailLink = contactSection.querySelector('a[href^="mailto:"]');
-        if (emailLink) profile.email = emailLink.href.replace("mailto:", "");
-        const phoneLink = contactSection.querySelector('a[href^="tel:"]');
-        if (phoneLink) profile.phone = phoneLink.href.replace("tel:", "");
-      }
-
-      console.log("✅ Scraped profile:", profile);
-      return profile;
-
-    } catch (error) {
-      console.error("❌ Error scraping profile:", error);
-      // Return whatever we have, even if incomplete
-      return profile;
-    }
-  }
-
-  /**
-   * Enhanced scraping method using ARIA labels and text content
-   */
-  function scrapeProfileByARIA() {
-    console.log("🔄 Using ARIA-based scraping method...");
-
-    const profile = {
-      name: "",
-      title: "",
-      company: "",
-      location: "",
-      about: "",
-      profileUrl: window.location.href,
-      photoUrl: ""
-    };
-
-    try {
-      // Get name from h1
-      const h1 = document.querySelector("h1");
-      if (h1?.innerText) {
-        profile.name = h1.innerText.trim();
-      }
-
-      // Find all elements with aria-label and search for relevant ones
-      const allElements = document.querySelectorAll("*[aria-label]");
-      const ariaLabels = Array.from(allElements).map(el => ({
-        label: el.getAttribute("aria-label"),
-        text: el.innerText?.trim(),
-        element: el
-      }));
-
-      console.log("🔍 Found ARIA labels:", ariaLabels.map(a => a.label));
-
-      // Find headline/title
-      const headlineAria = ariaLabels.find(a =>
-        a.label?.toLowerCase().includes("headline") ||
-        a.label?.toLowerCase().includes("title")
-      );
-      if (headlineAria?.text) {
-        profile.title = headlineAria.text;
-      }
-
-      // Find company
-      const companyAria = ariaLabels.find(a =>
-        a.label?.toLowerCase().includes("company") ||
-        a.label?.toLowerCase().includes("current company")
-      );
-      if (companyAria?.text) {
-        profile.company = companyAria.text;
-      }
-
-      // Find location
-      const locationAria = ariaLabels.find(a =>
-        a.label?.toLowerCase().includes("location") ||
-        a.label?.toLowerCase().includes("area")
-      );
-      if (locationAria?.text) {
-        profile.location = locationAria.text;
-      }
-
-      console.log("📊 ARIA-based profile:", profile);
-      return profile;
-
-    } catch (error) {
-      console.error("❌ Error in ARIA scraping:", error);
-      return profile;
-    }
-  }
-
-  /**
-   * Find elements by text content matching
-   */
-  function findElementByText(tagName, textPattern) {
-    const elements = document.querySelectorAll(tagName);
-    for (const el of elements) {
-      if (el.textContent && textPattern.test(el.textContent)) {
-        return el;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Alternative method: Get profile from meta tags and page structure
-   */
-  function scrapeProfileFromMeta() {
-    console.log("🔄 Using meta tag fallback...");
-
-    const profile = {
-      name: document.title?.split(" - ")[0]?.trim() || "",
-      title: "",
-      company: "",
-      location: "",
-      about: "",
-      profileUrl: window.location.href,
-      photoUrl: ""
-    };
-
-    // Try og:title meta tag
-    const ogTitle = document.querySelector('meta[property="og:title"]');
-    if (ogTitle?.content) {
-      profile.name = ogTitle.content;
-    }
-
-    // Try to extract name from URL
-    const urlMatch = window.location.href.match(/linkedin\.com\/in\/([^\/]+)/);
-    if (urlMatch && urlMatch[1]) {
-      // If we couldn't get name from title, use the URL slug as fallback
-      if (!profile.name || profile.name === urlMatch[1]) {
-        profile.name = urlMatch[1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-      }
-    }
-
-    console.log("📊 Meta-based profile:", profile);
+    console.log("✅ Final scraped profile:", profile);
     return profile;
   }
 
-  /**
-   * Last resort method: Try to find ANY h1 or main heading on the page
-   */
-  function scrapeProfileLastResort() {
-    console.log("🚨 Using last resort scraping method...");
-
-    const profile = {
-      name: "",
-      title: "",
-      company: "",
-      location: "",
-      about: "",
-      profileUrl: window.location.href,
-      photoUrl: ""
-    };
-
-    // Try to find ANY h1 element with substantial text
-    const allH1s = Array.from(document.querySelectorAll("h1"));
-    for (const h1 of allH1s) {
-      const text = h1.innerText?.trim();
-      if (text && text.length > 2 && text.length < 100) {
-        profile.name = text;
-        console.log("✅ Found h1 text:", text);
-        break;
-      }
-    }
-
-    // Try to get name from page title
-    if (!profile.name) {
-      const titleText = document.title?.split(" - ")[0]?.trim();
-      if (titleText && titleText.length > 2) {
-        profile.name = titleText;
-        console.log("✅ Using page title:", titleText);
-      }
-    }
-
-    // Try to extract from URL as absolute last resort
-    if (!profile.name) {
-      const urlMatch = window.location.href.match(/linkedin\.com\/in\/([^\/]+)/);
-      if (urlMatch && urlMatch[1]) {
-        profile.name = urlMatch[1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-        console.log("✅ Using URL slug:", profile.name);
-      }
-    }
-
-    console.log("📊 Last resort profile:", profile);
-    return profile;
-  }
-
-  /**
-   * Check if we're on a LinkedIn profile page
-   */
+  // ─── Check if profile page ───
   function isProfilePage() {
-    const isProfile = /linkedin\.com\/in\//.test(window.location.href);
-    console.log("🔍 isProfilePage check:", isProfile, "URL:", window.location.href);
-    return isProfile;
+    return /linkedin\.com\/in\//.test(window.location.href);
   }
 
-  /**
-   * Listen for messages from the popup (via background)
-   */
+  // ─── Message listener ───
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log("📨 Content script received message:", message.type);
+    console.log("📨 Content script received:", message.type);
 
-    // Respond to ping messages immediately
     if (message.type === "PING") {
-      console.log("🏓 PING received, sending PONG");
       sendResponse({ type: "PONG", status: "alive", url: window.location.href });
       return true;
     }
 
-    // Always send a response to prevent connection errors
-    try {
-      if (message.type === "GET_PROFILE") {
-        console.log("🔍 GET_PROFILE request received");
-        console.log("Current URL:", window.location.href);
-        console.log("Is profile page:", isProfilePage());
+    (async () => {
+      try {
+        if (message.type === "GET_PROFILE") {
+          if (!isProfilePage()) {
+            sendResponse({
+              success: false,
+              error: "Not a LinkedIn profile page. Navigate to a profile first.",
+            });
+            return;
+          }
 
-        if (!isProfilePage()) {
-          const error = "Not a LinkedIn profile page. Navigate to a profile first.";
-          console.error("❌", error);
-          sendResponse({
-            success: false,
-            error: error,
-          });
-          return true;
+          const profileData = await scrapeProfileData();
+
+          if (!profileData.name || profileData.name.length < 2) {
+            sendResponse({
+              success: false,
+              error: "Could not extract profile name. Please refresh the page and try again.",
+              debug: {
+                url: window.location.href,
+                h1: Array.from(document.querySelectorAll("h1")).map(h => getText(h)),
+                title: document.title,
+              }
+            });
+            return;
+          }
+
+          sendResponse({ success: true, profile: profileData });
+        } else if (message.type === "INSERT_MESSAGE") {
+          insertMessageIntoLinkedIn(message.text);
+          sendResponse({ success: true });
+        } else {
+          sendResponse({ success: false, error: "Unknown message type" });
         }
-
-        console.log("🔄 Starting to scrape profile data...");
-        let profileData = scrapeProfileData();
-        console.log("📊 Scraped data:", profileData);
-
-        // Check if we got enough data (not just name)
-        const hasMinimalData = profileData.name && profileData.name.length > 1;
-        const hasAdditionalData = profileData.title || profileData.company || profileData.location;
-
-        // If main scraping only got name, try ARIA method
-        if (hasMinimalData && !hasAdditionalData) {
-          console.log("⚠️ Main scraping only got name, trying ARIA method...");
-          const ariaData = scrapeProfileByARIA();
-          console.log("📊 ARIA data:", ariaData);
-
-          // Merge the data, prioritizing non-empty values
-          profileData = {
-            ...profileData,
-            title: profileData.title || ariaData.title || "",
-            company: profileData.company || ariaData.company || "",
-            location: profileData.location || ariaData.location || "",
-          };
-          console.log("📊 Merged data:", profileData);
-        }
-
-        // If main scraping failed, try fallback method
-        if (!profileData.name || profileData.name.length < 2) {
-          console.log("⚠️ Main scraping failed, trying fallback...");
-          profileData = scrapeProfileFromMeta();
-          console.log("📊 Fallback data:", profileData);
-        }
-
-        // If fallback also failed, try last resort
-        if (!profileData.name || profileData.name.length < 2) {
-          console.log("⚠️ Fallback failed, trying last resort...");
-          profileData = scrapeProfileLastResort();
-          console.log("📊 Last resort data:", profileData);
-        }
-
-        if (!profileData.name || profileData.name.length < 2) {
-          const error = "Could not extract profile data. Make sure you're on a LinkedIn profile page.";
-          console.error("❌", error);
-          console.log("Available DOM elements for debugging:");
-          console.log("- All h1 elements:", Array.from(document.querySelectorAll("h1")).map(h => ({
-            text: h.innerText?.trim(),
-            className: h.className,
-            id: h.id
-          })));
-          console.log("- Page title:", document.title);
-          console.log("- URL:", window.location.href);
-          sendResponse({
-            success: false,
-            error: error,
-          });
-          return true;
-        }
-
-        console.log("✅ Successfully scraped profile:", profileData.name);
-        sendResponse({ success: true, profile: profileData });
-        return true;
+      } catch (error) {
+        console.error("❌ Error handling message:", error);
+        sendResponse({ success: false, error: error.message || "Unknown error" });
       }
+    })();
 
-      if (message.type === "INSERT_MESSAGE") {
-        const messageText = message.text;
-        insertMessageIntoLinkedIn(messageText);
-        sendResponse({ success: true });
-        return true;
-      }
-
-      // Respond to unknown messages
-      console.log("⚠️ Unknown message type:", message.type);
-      sendResponse({ success: false, error: "Unknown message type" });
-      return true;
-
-    } catch (error) {
-      console.error("❌ Error handling message:", error);
-      sendResponse({
-        success: false,
-        error: "Error processing message: " + error.message
-      });
-      return true;
-    }
+    return true;
   });
 
-  /**
-   * Attempt to insert a message into LinkedIn's message input box
-   * Enhanced with multiple selector strategies and better event handling
-   */
+  // ─── Insert message into LinkedIn ───
   function insertMessageIntoLinkedIn(text) {
-    console.log("📝 Attempting to insert message into LinkedIn...");
-
-    // Try multiple selectors for LinkedIn message input
-    const msgInputSelectors = [
-      ".msg-form__contenteditable",                      // Primary messaging
-      '[data-placeholder="Write a message…"]',         // Alternative placeholder
-      ".msg-form__msg-content-container--is-empty p",   // Empty state
-      ".mentions-inputum__contenteditable",             // Mentions input
-      "div[contenteditable='true'][role='textbox']"    // Generic contenteditable
+    console.log("📝 Inserting message...");
+    const selectors = [
+      ".msg-form__contenteditable",
+      '[data-placeholder="Write a message…"]',
+      ".msg-form__msg-content-container--is-empty p",
+      ".mentions-inputum__contenteditable",
+      "div[contenteditable='true'][role='textbox']",
     ];
 
     let msgInput = null;
-    for (const selector of msgInputSelectors) {
-      msgInput = document.querySelector(selector);
-      if (msgInput) {
-        console.log("✅ Found message input with selector:", selector);
-        break;
-      }
+    for (const sel of selectors) {
+      msgInput = document.querySelector(sel);
+      if (msgInput) break;
     }
 
     if (msgInput) {
       try {
-        // Focus the input
         msgInput.focus();
-
-        // Clear existing content
-        msgInput.innerHTML = '';
-
-        // Use multiple methods to insert text for maximum compatibility
-        // Method 1: innerHTML (for most cases)
-        msgInput.innerHTML = text.replace(/\n/g, '<br>');
-
-        // Method 2: execCommand (backup)
+        msgInput.innerHTML = text.replace(/\n/g, "<br>");
         try {
           document.execCommand("selectAll", false, null);
           document.execCommand("insertText", false, text);
-        } catch (e) {
-          console.log("execCommand not supported, using innerHTML");
-        }
-
-        // Method 3: Trigger multiple events to ensure React/LinkedIn detects changes
+        } catch {}
         const events = [
           new Event("input", { bubbles: true }),
           new Event("change", { bubbles: true }),
-          new KeyboardEvent("keydown", { bubbles: true, key: "Enter", keyCode: 13 }),
-          new KeyboardEvent("keyup", { bubbles: true, key: "Enter", keyCode: 13 }),
-          new FocusEvent("focus", { bubbles: true }),
-          new FocusEvent("blur", { bubbles: true })
+          new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
+          new KeyboardEvent("keyup", { bubbles: true, key: "Enter" }),
         ];
-
-        events.forEach(event => {
-          msgInput.dispatchEvent(event);
-        });
-
-        console.log("✅ Message inserted successfully");
-        showToast("✨ Message inserted! Ready to send.", "success");
-
+        events.forEach(e => msgInput.dispatchEvent(e));
+        showToast("✨ Message inserted!");
       } catch (error) {
-        console.error("❌ Error inserting message:", error);
-        showToast("Error inserting message. Please paste manually.", "error");
+        console.error("Insert error:", error);
+        showToast("Error inserting message.");
       }
-
     } else {
-      console.log("⚠️ No message input found on current page");
-
-      // Fallback: Copy to clipboard
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(text).then(() => {
-          showToast("Message copied! Paste it into LinkedIn messaging.", "success");
-        }).catch(() => {
-          showToast("Please copy the message and paste it into LinkedIn.", "error");
-        });
-      } else {
-        // Last resort: Show the message in a modal/overlay
-        showCopyModal(text);
-      }
+      navigator.clipboard?.writeText(text).then(() => {
+        showToast("Message copied! Paste it into LinkedIn.");
+      }).catch(() => showCopyModal(text));
     }
   }
 
-  /**
-   * Show a modal with the message for manual copying
-   */
+  // ─── Copy modal ───
   function showCopyModal(text) {
     const modal = document.createElement("div");
-    modal.style.cssText = `
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.8);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 999999;
+    modal.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;z-index:999999;`;
+    modal.innerHTML = `
+      <div style="background:white;border-radius:12px;padding:24px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;color:#333;">
+        <h3 style="margin:0 0 16px 0;color:#0a66c2;">📧 Your Generated Message</h3>
+        <div style="background:#f3f6f8;padding:16px;border-radius:8px;white-space:pre-wrap;margin:16px 0;font-size:14px;line-height:1.6;">${text.replace(/</g, "&lt;")}</div>
+        <button id="copy-msg-btn" style="background:#0a66c2;color:white;border:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;width:100%;">Copy Message</button>
+        <button id="close-msg-btn" style="background:transparent;color:#666;border:1px solid #ddd;padding:12px 24px;border-radius:8px;font-size:14px;cursor:pointer;width:100%;margin-top:8px;">Close</button>
+      </div>
     `;
-
-    const content = document.createElement("div");
-    content.style.cssText = `
-      background: white;
-      border-radius: 12px;
-      padding: 24px;
-      max-width: 500px;
-      width: 90%;
-      max-height: 80vh;
-      overflow-y: auto;
-      color: #333;
-    `;
-
-    content.innerHTML = `
-      <h3 style="margin: 0 0 16px 0; color: #0a66c2;">📧 Your Generated Message</h3>
-      <div style="
-        background: #f3f6f8;
-        padding: 16px;
-        border-radius: 8px;
-        white-space: pre-wrap;
-        margin: 16px 0;
-        font-size: 14px;
-        line-height: 1.6;
-      ">${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
-      <button id="copy-message-btn" style="
-        background: #0a66c2;
-        color: white;
-        border: none;
-        padding: 12px 24px;
-        border-radius: 8px;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        width: 100%;
-      ">Copy Message</button>
-      <button id="close-modal-btn" style="
-        background: transparent;
-        color: #666;
-        border: 1px solid #ddd;
-        padding: 12px 24px;
-        border-radius: 8px;
-        font-size: 14px;
-        cursor: pointer;
-        width: 100%;
-        margin-top: 8px;
-      ">Close</button>
-    `;
-
-    modal.appendChild(content);
     document.body.appendChild(modal);
-
-    // Copy functionality
-    document.getElementById("copy-message-btn").addEventListener("click", () => {
+    modal.querySelector("#copy-msg-btn").addEventListener("click", () => {
       navigator.clipboard.writeText(text).then(() => {
-        document.getElementById("copy-message-btn").textContent = "✓ Copied!";
-        setTimeout(() => {
-          document.getElementById("copy-message-btn").textContent = "Copy Message";
-        }, 2000);
+        modal.querySelector("#copy-msg-btn").textContent = "✓ Copied!";
       });
     });
-
-    // Close functionality
-    document.getElementById("close-modal-btn").addEventListener("click", () => {
-      document.body.removeChild(modal);
-    });
-
-    modal.addEventListener("click", (e) => {
-      if (e.target === modal) {
-        document.body.removeChild(modal);
-      }
-    });
+    modal.querySelector("#close-msg-btn").addEventListener("click", () => modal.remove());
+    modal.addEventListener("click", e => { if (e.target === modal) modal.remove(); });
   }
 
-  /**
-   * Show a brief toast notification on the page
-   */
+  // ─── Toast ───
   function showToast(message) {
     const toast = document.createElement("div");
-    toast.style.cssText = `
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      background: #0a66c2;
-      color: white;
-      padding: 12px 20px;
-      border-radius: 8px;
-      font-family: -apple-system, sans-serif;
-      font-size: 14px;
-      z-index: 999999;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      animation: fadeIn 0.3s ease;
-    `;
+    toast.style.cssText = `position:fixed;bottom:24px;right:24px;background:#0a66c2;color:white;padding:12px 20px;border-radius:8px;font-family:-apple-system,sans-serif;font-size:14px;z-index:999999;box-shadow:0 4px 12px rgba(0,0,0,0.3);`;
     toast.textContent = message;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
   }
 
-  // Expose test function to console for debugging
-  window.testLinkedInScraper = function() {
+  // ─── Debug helper ───
+  window.testLinkedInScraper = async function () {
     console.log("🧪 Testing LinkedIn scraper...");
-    console.log("Current URL:", window.location.href);
-    console.log("Is profile page:", isProfilePage());
-
     if (!isProfilePage()) {
       console.error("❌ Not a LinkedIn profile page");
       return null;
     }
-
-    const profile = scrapeProfileData();
-    console.log("📊 Scraped profile data:", profile);
-
-    if (!profile.name) {
-      console.error("❌ Failed to extract profile name");
-      console.log("Available h1 elements:", document.querySelectorAll("h1"));
-      return profile;
-    }
-
-    console.log("✅ Successfully extracted profile:", profile.name);
+    const profile = await scrapeProfileData();
+    console.log("📊 Result:", profile);
     return profile;
   };
 

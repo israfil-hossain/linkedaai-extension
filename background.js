@@ -202,6 +202,7 @@ async function generateMessage(payload, sendResponse) {
     }
 
     let fullMessage = "";
+    let streamError = null;
     const decoder = new TextDecoder();
 
     while (true) {
@@ -217,6 +218,10 @@ async function generateMessage(payload, sendResponse) {
           if (data === "[DONE]") continue;
           try {
             const parsed = JSON.parse(data);
+            if (parsed.error) {
+              streamError = parsed.error;
+              continue;
+            }
             if (parsed.delta) {
               fullMessage += parsed.delta;
               // Send streaming update to popup
@@ -231,6 +236,11 @@ async function generateMessage(payload, sendResponse) {
           } catch {}
         }
       }
+    }
+
+    if (streamError) {
+      sendResponse({ success: false, error: streamError });
+      return;
     }
 
     sendResponse({ success: true, message: fullMessage });
@@ -280,6 +290,8 @@ async function saveLead(payload, sendResponse) {
           about: profile.about || "",
           profileUrl: profile.profileUrl || profile.linkedinUrl || "",
           photoUrl: profile.photoUrl || "",
+          email: profile.email || "",
+          phone: profile.phone || "",
         },
         message: message || "",
         tone: tone || "professional",

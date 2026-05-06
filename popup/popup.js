@@ -450,12 +450,24 @@ function renderProfile(profile) {
   const profileTitle = $("profile-title");
   const profileCompany = $("profile-company");
   const profileLocation = $("profile-location");
+  const profileEmail = $("profile-email");
+  const profilePhone = $("profile-phone");
   const profileAvatar = $("profile-avatar");
 
   if (profileName) profileName.textContent = profile.name || "Unknown";
   if (profileTitle) profileTitle.textContent = profile.title || "";
   if (profileCompany) profileCompany.textContent = profile.company || "Not specified";
   if (profileLocation) profileLocation.textContent = profile.location || "Not specified";
+  if (profileEmail) profileEmail.textContent = profile.email || "";
+  if (profilePhone) profilePhone.textContent = profile.phone || "";
+
+  // Auto-fill lead detail inputs if scraped data exists
+  const leadEmailInput = $("lead-email");
+  const leadPhoneInput = $("lead-phone");
+  const leadLinkedinInput = $("lead-linkedin");
+  if (leadEmailInput && profile.email && !leadEmailInput.value) leadEmailInput.value = profile.email;
+  if (leadPhoneInput && profile.phone && !leadPhoneInput.value) leadPhoneInput.value = profile.phone;
+  if (leadLinkedinInput && profile.linkedinUrl && !leadLinkedinInput.value) leadLinkedinInput.value = profile.linkedinUrl;
 
   if (profileAvatar) {
     if (profile.photoUrl) {
@@ -836,6 +848,8 @@ function createLeadCard(lead) {
   const title = profile.title || lead.title || "";
   const company = profile.company || lead.company || "";
   const location = profile.location || lead.location || "";
+  const email = profile.email || lead.email || "";
+  const phone = profile.phone || lead.phone || "";
   const photoUrl = profile.photoUrl || lead.photo_url || "";
   const message = lead.message || "";
   const profileUrl = profile.linkedinUrl || profile.profileUrl || lead.profile_url || "";
@@ -856,6 +870,12 @@ function createLeadCard(lead) {
         </div>
       </div>
       <div class="lead-card-body">
+        ${email || phone ? `
+          <div style="padding: 6px 10px; background: #f3f6f8; border-radius: 6px; margin: 0 10px 6px; font-size: 11px; line-height: 1.5; color: #00000099;">
+            ${email ? `<div>📧 ${escapeHtml(email)}</div>` : ""}
+            ${phone ? `<div>📞 ${escapeHtml(phone)}</div>` : ""}
+          </div>
+        ` : ""}
         ${message ? `
           <div style="padding: 8px 10px; background: #f3f6f8; border-radius: 6px; margin: 0 10px 8px; font-size: 12px; line-height: 1.5;">
             ${escapeHtml(message)}

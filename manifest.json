@@ -3,6 +3,8 @@
   "name": "LinkedIn AI Outreach",
   "version": "1.2.0",
   "description": "Generate personalized LinkedIn outreach messages using AI",
+  "homepage_url": "https://linkedaai.flowentech.com",
+  "privacy_policy_url": "https://linkedaai.flowentech.com/privacy",
   "permissions": [
     "activeTab",
     "storage",
@@ -13,8 +15,7 @@
   "host_permissions": [
     "https://www.linkedin.com/*",
     "https://linkedin.com/*",
-    "https://linkedaai.flowentech.com/*",
-    "http://localhost:3000/*"
+    "https://linkedaai.flowentech.com/*"
   ],
   "background": {
     "service_worker": "background.js"

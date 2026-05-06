@@ -146,6 +146,8 @@
 
     .panel.active {
       display: flex;
+      overflow-y: auto;
+      overflow-x: hidden;
     }
     .panel:not(.active) {
       display: none !important;
@@ -954,6 +956,8 @@
             <div class="profile-detail" id="profile-title" style="font-size: 11px;">—</div>
             <div class="profile-detail" id="profile-company" style="font-size: 11px;">—</div>
             <div class="profile-detail" id="profile-location" style="font-size: 11px;">—</div>
+            <div class="profile-detail" id="profile-email" style="font-size: 11px; color: var(--primary);">—</div>
+            <div class="profile-detail" id="profile-phone" style="font-size: 11px; color: var(--success);">—</div>
           </div>
           <button class="btn-icon" id="refresh-profile-btn" title="Refresh" style="width: 24px; height: 24px;">
             <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
