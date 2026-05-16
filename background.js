@@ -266,7 +266,7 @@ async function saveLead(payload, sendResponse) {
       return;
     }
 
-    const { profile, message, tone } = payload;
+    const { profile, message, tone, roleTag, leadStatus } = payload;
 
     if (!profile || !profile.name) {
       sendResponse({ success: false, error: "Invalid profile data" });
@@ -293,6 +293,8 @@ async function saveLead(payload, sendResponse) {
           email: profile.email || "",
           phone: profile.phone || "",
         },
+        roleTag: roleTag || "",
+        leadStatus: leadStatus || "",
         message: message || "",
         tone: tone || "professional",
       }),

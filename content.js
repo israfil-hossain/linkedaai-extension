@@ -116,7 +116,10 @@
       // --- NAME ---
       // Try h1 first (most reliable for name)
       const h1 = document.querySelector("h1");
-      if (h1) profile.name = getText(h1);
+      if (h1) {
+        profile.name = getText(h1);
+        console.log("✅ Name from h1:", profile.name);
+      }
 
       // Fallback name selectors
       if (!profile.name) {
@@ -138,6 +141,7 @@
             const text = getText(el);
             if (text && text.length > 1 && text.length < 100) {
               profile.name = text;
+              console.log("✅ Name from fallback:", profile.name, "selector:", sel);
               break;
             }
           }
@@ -166,6 +170,7 @@
           const text = getText(el);
           if (text && text.length > 2 && text.length < 300 && text !== profile.name) {
             profile.title = text;
+            console.log("✅ Title from selector:", profile.title, "selector:", sel);
             break;
           }
         }
@@ -181,6 +186,7 @@
             const text = getText(sib);
             if (text && text.length > 5 && text.length < 300 && text !== profile.name && !text.includes("Connection")) {
               profile.title = text;
+              console.log("✅ Title from sibling:", profile.title);
               break;
             }
           }
@@ -204,10 +210,12 @@
           const match = aria.match(/Current company[\s:]*(.+)/i);
           if (match) {
             profile.company = match[1].trim();
+            console.log("✅ Company from aria-label:", profile.company);
             break;
           }
           if (text && text.length > 1 && text.length < 150 && text !== profile.name && text !== profile.title) {
             profile.company = text;
+            console.log("✅ Company from text:", profile.company, "selector:", sel);
             break;
           }
         }
@@ -224,7 +232,10 @@
             );
             if (companyEl) {
               const text = getText(companyEl);
-              if (text && text.length < 150) profile.company = text;
+              if (text && text.length < 150) {
+                profile.company = text;
+                console.log("✅ Company from experience:", profile.company);
+              }
             }
           }
         }

@@ -38,28 +38,44 @@ let authEmail, authPassword, authName, authBtn, authTitle, authSubtitle, authTog
 document.addEventListener("DOMContentLoaded", async () => {
   console.log("🚀 LinkedIn AI Outreach initialized");
 
-  // Cache DOM refs
-  panels.auth = $("auth-panel");
-  panels.main = $("main-panel");
-  panels.leads = $("leads-panel");
-  panels.notes = $("notes-panel");
-  panels.settings = $("settings-panel");
+  try {
+    // Cache DOM refs
+    panels.auth = $("auth-panel");
+    panels.main = $("main-panel");
+    panels.leads = $("leads-panel");
+    panels.notes = $("notes-panel");
+    panels.settings = $("settings-panel");
 
-  authEmail = $("auth-email");
-  authPassword = $("auth-password");
-  authName = $("auth-name");
-  authBtn = $("auth-btn");
-  authTitle = $("auth-title");
-  authSubtitle = $("auth-subtitle");
-  authToggle = $("auth-toggle");
-  authToggleText = $("auth-toggle-text");
+    // Fallback: Show auth panel if panels exist
+    if (panels.auth && !panels.auth.classList.contains("active") &&
+        panels.main && !panels.main.classList.contains("active")) {
+      console.log("⚠️ No panel active, showing auth panel as fallback");
+      panels.auth.style.display = "flex";
+    }
 
-  // Setup event listeners
-  setupPasswordToggle();
-  setupEventListeners();
+    authEmail = $("auth-email");
+    authPassword = $("auth-password");
+    authName = $("auth-name");
+    authBtn = $("auth-btn");
+    authTitle = $("auth-title");
+    authSubtitle = $("auth-subtitle");
+    authToggle = $("auth-toggle");
+    authToggleText = $("auth-toggle-text");
 
-  // Check auth after setting up listeners
-  await checkAuth();
+    // Setup event listeners
+    setupPasswordToggle();
+    setupEventListeners();
+
+    // Check auth after setting up listeners
+    await checkAuth();
+  } catch (error) {
+    console.error("❌ Initialization error:", error);
+    // Fallback: ensure auth panel is visible
+    const authPanel = document.getElementById("auth-panel");
+    if (authPanel) {
+      authPanel.style.display = "flex";
+    }
+  }
 });
 
 // ---- Password Toggle ----
@@ -136,6 +152,9 @@ function setupEventListeners() {
   // Profile refresh
   $("refresh-profile-btn")?.addEventListener("click", loadProfile);
 
+  // Google Search
+  $("google-search-btn")?.addEventListener("click", handleGoogleSearch);
+
   // Tone selection
   document.querySelectorAll(".tone-btn").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -187,7 +206,7 @@ function setupEventListeners() {
 
   // Search
   $("leads-search")?.addEventListener("input", handleLeadsSearch);
-  $("notes-search")?.addEventListener("input", () => loadNotes());
+  $("notes-search")?.addEventListener("input", debounce(() => loadNotes(), 300));
 
   // Upgrade
   $("upgrade-to-pro-btn")?.addEventListener("click", handleUpgrade);
@@ -608,6 +627,8 @@ async function handleSaveLead() {
     phone: $("lead-phone")?.value?.trim() || "",
     linkedinUrl: $("lead-linkedin")?.value?.trim() || "",
     tags: $("lead-tags")?.value?.trim() ? $("lead-tags").value.split(",").map(t => t.trim()).filter(Boolean) : [],
+    roleTag: $("lead-role-tag")?.value?.trim() || "",
+    leadStatus: $("lead-status-tag")?.value?.trim() || "",
   };
 
   try {
@@ -618,6 +639,8 @@ async function handleSaveLead() {
           ...state.profile,
           ...extraFields,
         },
+        roleTag: extraFields.roleTag,
+        leadStatus: extraFields.leadStatus,
         message: state.generatedMessage || "",
         tone: state.selectedTone,
       },
@@ -672,6 +695,10 @@ async function handleSaveLead() {
 
 // ---- Load Leads ----
 let selectedLeadTag = "";
+let googleResults = [];
+
+// ---- Load Notes ----
+let selectedNoteTag = "";
 
 async function loadLeads() {
   console.log("🔄 Loading leads...");
@@ -735,6 +762,38 @@ function handleLeadsSearch(e) {
   renderLeads();
   state.leads = state._filteredLeads || state.leads; // Restore
 }
+
+function handleGoogleSearch() {
+  if (!state.profile || !state.profile.company) {
+    showToast("Please fetch profile first", "error");
+    return;
+  }
+  
+  const company = state.profile.company;
+  const resultsDiv = $("google-search-results");
+  resultsDiv.style.display = "block";
+  resultsDiv.innerHTML = "Searching...";
+  
+  showToast(`Searching for ${company}...`, "info");
+  
+  // In a real extension, you would use a search API here
+  // For now, show mock results
+  setTimeout(() => {
+    resultsDiv.innerHTML = `
+      <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #666;">Results for: ${company}</div>
+      <div style="font-size: 11px; color: #333;">
+        <a href="https://www.google.com/search?q=${encodeURIComponent(company)}" target="_blank" style="color: #3B82F6; text-decoration: none; display: block; margin: 4px 0;" onclick="event.stopPropagation()">
+          🔍 Google Search
+        </a>
+        <a href="https://www.linkedin.com/search/results/companies/?keywords=${encodeURIComponent(company)}" target="_blank" style="color: #0077b5; text-decoration: none; display: block; margin: 4px 0;" onclick="event.stopPropagation()">
+          💼 LinkedIn Search
+        </a>
+      </div>
+    `;
+    showToast("Search results ready!", "success");
+  }, 500);
+}
+
 
 function renderTagFilters() {
   const tagsContainer = $("leads-tags-filter");
@@ -942,7 +1001,14 @@ async function loadNotes() {
     }
 
     console.log("📡 Fetching notes from API...");
-    const response = await fetch(`${API_BASE_URL}/api/notes`, {
+
+    // Get search value
+    const searchValue = $("notes-search")?.value?.trim() || "";
+    const params = new URLSearchParams();
+    if (searchValue) params.set("search", searchValue);
+    if (selectedNoteTag) params.set("tag", selectedNoteTag);
+
+    const response = await fetch(`${API_BASE_URL}/api/notes?${params}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
@@ -960,6 +1026,7 @@ async function loadNotes() {
     state.notes = data.user_notes || data.notes || [];
 
     renderNotes();
+    renderNoteTagFilters();
 
   } catch (error) {
     console.error("Error loading notes:", error);
@@ -1000,11 +1067,37 @@ function renderNotes() {
 
   notesList.innerHTML = state.notes.map(note => createNoteCard(note)).join("");
 
-  notesList.querySelectorAll(".note-card").forEach(card => {
-    const noteId = card.dataset.noteId;
-    card.addEventListener("click", () => {
+  // Add event listeners for view and delete buttons
+  notesList.querySelectorAll(".note-view-btn").forEach(btn => {
+    const noteId = btn.dataset.noteId;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
       const note = state.notes.find(n => n.id === noteId);
       if (note) openNoteModal(note);
+    });
+  });
+
+  notesList.querySelectorAll(".note-delete-btn").forEach(btn => {
+    const noteId = btn.dataset.noteId;
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (confirm("Delete this note?")) {
+        const { token } = await sendBg({ type: "GET_AUTH_TOKEN" });
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/notes?id=${noteId}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (response.ok) {
+            showToast("Note deleted", "success");
+            await loadNotes();
+          } else {
+            showToast("Failed to delete note", "error");
+          }
+        } catch (error) {
+          showToast("Failed to delete note", "error");
+        }
+      }
     });
   });
 }
@@ -1012,15 +1105,74 @@ function renderNotes() {
 function createNoteCard(note) {
   const title = note.title || "Untitled";
   const content = note.content || "";
+  const header = note.header || "";
+  const tags = note.tags || [];
   const updatedAt = new Date(note.updatedAt).toLocaleDateString();
 
   return `
     <div class="note-card" data-note-id="${note.id}">
-      <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px;">${escapeHtml(title)}</div>
-      ${content ? `<div style="font-size: 12px; color: #00000099; line-height: 1.5; margin-bottom: 8px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">${escapeHtml(content)}</div>` : ""}
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+        <div style="flex: 1; min-width: 0;">
+          ${header ? `<div style="font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; margin-bottom: 2px;">${escapeHtml(header)}</div>` : ""}
+          <div style="font-weight: 600; font-size: 14px; margin-bottom: 6px;">${escapeHtml(title)}</div>
+          ${content ? `<div style="font-size: 12px; color: #00000099; line-height: 1.5; margin-bottom: 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${escapeHtml(content)}</div>` : ""}
+        </div>
+        <div style="display: flex; gap: 4px; flex-shrink: 0;">
+          <button class="note-view-btn" data-note-id="${note.id}" title="View" style="background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--primary); cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+          <button class="note-delete-btn" data-note-id="${note.id}" title="Delete" style="background: var(--danger-light); border: 1px solid var(--danger); color: var(--danger); cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      ${tags.length > 0 ? `
+        <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px;">
+          ${tags.map(tag => `<span style="font-size: 10px; padding: 2px 6px; background: var(--primary-light); color: var(--primary); border-radius: 10px;">${escapeHtml(tag)}</span>`).join("")}
+        </div>
+      ` : ""}
       <div style="font-size: 11px; color: #00000066;">${updatedAt}</div>
     </div>
   `;
+}
+
+function renderNoteTagFilters() {
+  const tagsContainer = $("notes-tags-filter");
+  if (!tagsContainer) return;
+
+  const allTags = new Set();
+  state.notes.forEach(note => {
+    (note.tags || []).forEach((tag) => allTags.add(tag));
+  });
+
+  const tags = Array.from(allTags).sort();
+
+  if (tags.length === 0) {
+    tagsContainer.innerHTML = `
+      <button class="btn btn-secondary notes-filter-btn" data-tag="" style="padding: 6px 12px; font-size: 12px; white-space: nowrap;">All</button>
+    `;
+    return;
+  }
+
+  tagsContainer.innerHTML = `
+    <button class="btn ${!selectedNoteTag ? 'btn-primary' : 'btn-secondary'} notes-filter-btn" data-tag="" style="padding: 6px 12px; font-size: 12px; white-space: nowrap;">All</button>
+    ${tags.map(tag => `
+      <button class="btn ${selectedNoteTag === tag ? 'btn-primary' : 'btn-secondary'} notes-filter-btn" data-tag="${tag}" style="padding: 6px 12px; font-size: 12px; white-space: nowrap;">${escapeHtml(tag)}</button>
+    `).join("")}
+  `;
+
+  tagsContainer.querySelectorAll("button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      selectedNoteTag = btn.dataset.tag || "";
+      loadNotes();
+    });
+  });
 }
 
 let currentEditingNoteId = null;
@@ -1182,6 +1334,18 @@ async function handleUpgrade() {
 }
 
 // ---- Helpers ----
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
 function setStatus(type, text) {
   const statusDot = $("status-dot");
   const statusText = $("status-text");

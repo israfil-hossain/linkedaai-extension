@@ -1079,6 +1079,36 @@
         <input type="tel" class="input-field" id="lead-phone" placeholder="Phone number" style="padding: 8px 12px; font-size: 12px;" />
         <input type="url" class="input-field" id="lead-linkedin" placeholder="LinkedIn URL" style="padding: 8px 12px; font-size: 12px;" />
         <input type="text" class="input-field" id="lead-tags" placeholder="Tags (comma separated)" style="padding: 8px 12px; font-size: 12px;" />
+        <div style="display: flex; gap: 8px;">
+          <div style="flex: 1;">
+            <label style="font-size: 10px; color: var(--text-tertiary); margin-bottom: 4px; display: block;">Role</label>
+            <select id="lead-role-tag" class="input-field" style="padding: 6px 10px; font-size: 12px;">
+              <option value="">Select Role</option>
+              <option value="founder">Founder</option>
+              <option value="manager">Manager</option>
+              <option value="hr">HR</option>
+            </select>
+          </div>
+          <div style="flex: 1;">
+            <label style="font-size: 10px; color: var(--text-tertiary); margin-bottom: 4px; display: block;">Lead Status</label>
+            <select id="lead-status-tag" class="input-field" style="padding: 6px 10px; font-size: 12px;">
+              <option value="">Select Status</option>
+              <option value="hot">Hot</option>
+              <option value="medium">Medium</option>
+              <option value="cold">Cold</option>
+            </select>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+          <button id="google-search-btn" class="btn btn-secondary" style="padding: 8px 12px; font-size: 11px; display: flex; align-items: center; gap: 6px; background: var(--bg-tertiary);">
+            <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M21 21v-6a2 2 0-2 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1 0h-1v-9h1v9zm-2 0h-3v-7h3v7zm15.952 0h-11.952v-2.031h11.952v2.031z"/>
+            </svg>
+            Search Google for Company
+          </button>
+        </div>
+        <!-- Google Search Results -->
+        <div id="google-search-results" style="display: none; margin-top: 8px; padding: 12px; background: var(--bg-tertiary); border-radius: 8px;"></div>
       </div>
     </div>
   </div>
@@ -1142,6 +1172,10 @@
         <button class="btn btn-primary" id="create-note-btn" style="margin-left: auto; padding: 4px 10px; font-size: 11px; flex-shrink: 0; width: auto !important; min-width: 60px;">+ New</button>
       </div>
       <input type="text" class="input-field" id="notes-search" placeholder="Search notes..." style="padding: 6px 10px; font-size: 12px;" />
+      <!-- Tag Filter -->
+      <div style="display: flex; gap: 6px; margin-top: 6px; overflow-x: auto; padding-bottom: 2px;" id="notes-tags-filter">
+        <button class="btn btn-secondary notes-filter-btn" data-tag="" style="padding: 4px 10px; font-size: 11px; white-space: nowrap;">All</button>
+      </div>
     </div>
 
     <div class="notes-list" id="notes-list">

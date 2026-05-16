@@ -1,10 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "LinkedIn AI Outreach",
+  "name": "Linkedaai",
   "version": "1.2.0",
   "description": "Generate personalized LinkedIn outreach messages using AI",
   "homepage_url": "https://linkedaai.flowentech.com",
-  "privacy_policy_url": "https://linkedaai.flowentech.com/privacy",
   "permissions": [
     "activeTab",
     "storage",
