@@ -15,6 +15,7 @@ let state = {
   usageLimit: 10,
   leads: [],
   notes: [],
+  bulkLeads: [],
   currentPanel: "main",
   authMode: "login" // 'login' | 'signup'
 };
@@ -26,6 +27,7 @@ const $ = (id) => document.getElementById(id);
 const panels = {
   auth: null,
   main: null,
+  bulk: null,
   leads: null,
   notes: null,
   settings: null
@@ -34,14 +36,73 @@ const panels = {
 // Auth elements
 let authEmail, authPassword, authName, authBtn, authTitle, authSubtitle, authToggle, authToggleText;
 
+// ---- Keepalive: wake service worker on popup open ----
+function initKeepalive() {
+  try {
+    const port = chrome.runtime.connect({ name: "popup-keepalive" });
+    port.onDisconnect.addListener(() => {
+      // Must access lastError to suppress "Unchecked runtime.lastError"
+      if (chrome.runtime.lastError) {
+        // Service worker disconnected or not ready — handled silently
+      }
+    });
+  } catch (e) {
+    // Connection failed, sendBg retry will handle it
+  }
+}
+
+// ---- Loading overlay ----
+function hideLoadingOverlay() {
+  const overlay = document.getElementById("loading-overlay");
+  if (overlay) {
+    overlay.classList.add("hidden");
+    setTimeout(() => overlay.remove(), 300);
+  }
+}
+
+// ---- Wake service worker before init ----
+function wakeServiceWorker() {
+  return new Promise((resolve) => {
+    let attempts = 3;
+    function tryWake() {
+      try {
+        // Access lastError to clear any residual value
+        const _ = chrome.runtime.lastError;
+        chrome.runtime.sendMessage({ type: "PING" }, () => {
+          if (chrome.runtime.lastError) {
+            if (--attempts > 0) {
+              setTimeout(tryWake, 150);
+            } else {
+              resolve();
+            }
+          } else {
+            resolve();
+          }
+        });
+      } catch {
+        if (--attempts > 0) {
+          setTimeout(tryWake, 150);
+        } else {
+          resolve();
+        }
+      }
+    }
+    tryWake();
+  });
+}
+
 // ---- Init ----
 document.addEventListener("DOMContentLoaded", async () => {
   console.log("🚀 LinkedIn AI Outreach initialized");
 
   try {
+    // Wake the service worker before anything else
+    await wakeServiceWorker();
+
     // Cache DOM refs
     panels.auth = $("auth-panel");
     panels.main = $("main-panel");
+    panels.bulk = $("bulk-panel");
     panels.leads = $("leads-panel");
     panels.notes = $("notes-panel");
     panels.settings = $("settings-panel");
@@ -75,6 +136,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (authPanel) {
       authPanel.style.display = "flex";
     }
+  } finally {
+    hideLoadingOverlay();
   }
 });
 
@@ -145,9 +208,15 @@ function setupEventListeners() {
     showPanel("settings");
   });
 
+  $("bulk-leads-btn")?.addEventListener("click", handleBulkCapture);
+
   $("leads-back-btn")?.addEventListener("click", () => showPanel("main"));
   $("notes-back-btn")?.addEventListener("click", () => showPanel("main"));
   $("settings-back-btn")?.addEventListener("click", () => showPanel("main"));
+  $("bulk-back-btn")?.addEventListener("click", () => showPanel("main"));
+  $("bulk-cancel-btn")?.addEventListener("click", () => showPanel("main"));
+  $("bulk-select-all-btn")?.addEventListener("click", handleBulkSelectAll);
+  $("bulk-save-btn")?.addEventListener("click", handleBulkSave);
 
   // Profile refresh
   $("refresh-profile-btn")?.addEventListener("click", loadProfile);
@@ -198,6 +267,11 @@ function setupEventListeners() {
   });
   $("save-lead-btn")?.addEventListener("click", handleSaveLead);
 
+  // Manual Lead Creation
+  $("add-manual-lead-btn")?.addEventListener("click", openManualLeadModal);
+  $("close-manual-lead-btn")?.addEventListener("click", closeManualLeadModal);
+  $("save-manual-lead-btn")?.addEventListener("click", handleSaveManualLead);
+
   // Notes
   $("create-note-btn")?.addEventListener("click", () => openNoteModal());
   $("close-note-modal")?.addEventListener("click", closeNoteModal);
@@ -210,6 +284,21 @@ function setupEventListeners() {
 
   // Upgrade
   $("upgrade-to-pro-btn")?.addEventListener("click", handleUpgrade);
+}
+
+function openManualLeadModal() {
+  const modal = $("manual-lead-modal");
+  if (!modal) return;
+  modal.classList.remove("hidden");
+  modal.style.display = "flex";
+  setTimeout(() => $("manual-lead-name")?.focus(), 0);
+}
+
+function closeManualLeadModal() {
+  const modal = $("manual-lead-modal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  modal.style.display = "none";
 }
 
 // ---- Auth ----
@@ -639,6 +728,7 @@ async function handleSaveLead() {
           ...state.profile,
           ...extraFields,
         },
+        tags: extraFields.tags,
         roleTag: extraFields.roleTag,
         leadStatus: extraFields.leadStatus,
         message: state.generatedMessage || "",
@@ -689,6 +779,84 @@ async function handleSaveLead() {
         </svg>
         Save Lead
       `;
+    }
+  }
+}
+
+async function handleSaveManualLead() {
+  const name = $("manual-lead-name")?.value?.trim();
+  if (!name) {
+    showToast("Name is required", "error");
+    return;
+  }
+
+  const saveBtn = $("save-manual-lead-btn");
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+  }
+
+  try {
+    const { token } = await sendBg({ type: "GET_AUTH_TOKEN" });
+    if (!token) {
+      showToast("Please sign in first", "error");
+      return;
+    }
+
+    const leadData = {
+      profile: {
+        name: name,
+        company: $("manual-lead-company")?.value?.trim() || "",
+        title: $("manual-lead-title")?.value?.trim() || "",
+        email: $("manual-lead-email")?.value?.trim() || "",
+        phone: $("manual-lead-phone")?.value?.trim() || "",
+        linkedinUrl: $("manual-lead-linkedin")?.value?.trim() || "",
+      },
+      notes: $("manual-lead-notes")?.value?.trim() || "",
+      tags: $("manual-lead-tags")?.value?.trim() ? $("manual-lead-tags").value.split(",").map(t => t.trim()).filter(Boolean) : [],
+      roleTag: $("manual-lead-role")?.value || "",
+      leadStatus: $("manual-lead-status")?.value || "",
+    };
+
+    if (!leadData.profile.linkedinUrl) {
+      leadData.profile.linkedinUrl = `manual://${Date.now()}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    }
+    leadData.profile.profileUrl = leadData.profile.linkedinUrl;
+
+    const res = await fetch(`${API_BASE_URL}/api/leads`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(leadData),
+    });
+
+    if (res.ok) {
+      showToast("Lead created successfully!", "success");
+      // Clear form
+      $("manual-lead-name").value = "";
+      $("manual-lead-company").value = "";
+      $("manual-lead-title").value = "";
+      $("manual-lead-email").value = "";
+      $("manual-lead-phone").value = "";
+      $("manual-lead-linkedin").value = "";
+      $("manual-lead-role").value = "";
+      $("manual-lead-status").value = "";
+      $("manual-lead-tags").value = "";
+      $("manual-lead-notes").value = "";
+      closeManualLeadModal();
+    } else {
+      const errorData = await res.json().catch(() => ({}));
+      showToast(errorData.error || "Failed to create lead", "error");
+    }
+  } catch (error) {
+    console.error("Error creating lead:", error);
+    showToast("Failed to create lead", "error");
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Save Lead";
     }
   }
 }
@@ -1067,13 +1235,31 @@ function renderNotes() {
 
   notesList.innerHTML = state.notes.map(note => createNoteCard(note)).join("");
 
-  // Add event listeners for view and delete buttons
+  // Card click opens view mode
+  notesList.querySelectorAll(".note-card").forEach(card => {
+    const noteId = card.dataset.noteId;
+    card.addEventListener("click", () => {
+      const note = state.notes.find(n => String(n.id) === noteId);
+      if (note) openNoteModal(note, true);
+    });
+  });
+
+  // Add event listeners for view, edit, and delete buttons
   notesList.querySelectorAll(".note-view-btn").forEach(btn => {
     const noteId = btn.dataset.noteId;
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const note = state.notes.find(n => n.id === noteId);
-      if (note) openNoteModal(note);
+      const note = state.notes.find(n => String(n.id) === noteId);
+      if (note) openNoteModal(note, true);
+    });
+  });
+
+  notesList.querySelectorAll(".note-edit-btn").forEach(btn => {
+    const noteId = btn.dataset.noteId;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const note = state.notes.find(n => String(n.id) === noteId);
+      if (note) openNoteModal(note, false);
     });
   });
 
@@ -1110,21 +1296,27 @@ function createNoteCard(note) {
   const updatedAt = new Date(note.updatedAt).toLocaleDateString();
 
   return `
-    <div class="note-card" data-note-id="${note.id}">
+    <div class="note-card" data-note-id="${escapeHtml(String(note.id))}">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
         <div style="flex: 1; min-width: 0;">
           ${header ? `<div style="font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; margin-bottom: 2px;">${escapeHtml(header)}</div>` : ""}
           <div style="font-weight: 600; font-size: 14px; margin-bottom: 6px;">${escapeHtml(title)}</div>
-          ${content ? `<div style="font-size: 12px; color: #00000099; line-height: 1.5; margin-bottom: 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${escapeHtml(content)}</div>` : ""}
+          ${content ? `<div class="note-content">${renderNoteCardContent(content)}</div>` : ""}
         </div>
         <div style="display: flex; gap: 4px; flex-shrink: 0;">
-          <button class="note-view-btn" data-note-id="${note.id}" title="View" style="background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--primary); cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+          <button class="note-view-btn" data-note-id="${escapeHtml(String(note.id))}" title="View" style="background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--primary); cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
             <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
               <circle cx="12" cy="12" r="3"/>
             </svg>
           </button>
-          <button class="note-delete-btn" data-note-id="${note.id}" title="Delete" style="background: var(--danger-light); border: 1px solid var(--danger); color: var(--danger); cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+          <button class="note-edit-btn" data-note-id="${escapeHtml(String(note.id))}" title="Edit" style="background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M4 20h4l10-10-4-4L4 16v4z"/>
+              <path d="M13.5 6.5l4 4"/>
+            </svg>
+          </button>
+          <button class="note-delete-btn" data-note-id="${escapeHtml(String(note.id))}" title="Delete" style="background: var(--danger-light); border: 1px solid var(--danger); color: var(--danger); cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
             <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <polyline points="3 6 5 6 21 6"/>
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -1163,7 +1355,7 @@ function renderNoteTagFilters() {
   tagsContainer.innerHTML = `
     <button class="btn ${!selectedNoteTag ? 'btn-primary' : 'btn-secondary'} notes-filter-btn" data-tag="" style="padding: 6px 12px; font-size: 12px; white-space: nowrap;">All</button>
     ${tags.map(tag => `
-      <button class="btn ${selectedNoteTag === tag ? 'btn-primary' : 'btn-secondary'} notes-filter-btn" data-tag="${tag}" style="padding: 6px 12px; font-size: 12px; white-space: nowrap;">${escapeHtml(tag)}</button>
+      <button class="btn ${selectedNoteTag === tag ? 'btn-primary' : 'btn-secondary'} notes-filter-btn" data-tag="${escapeHtml(tag)}" style="padding: 6px 12px; font-size: 12px; white-space: nowrap;">${escapeHtml(tag)}</button>
     `).join("")}
   `;
 
@@ -1177,25 +1369,47 @@ function renderNoteTagFilters() {
 
 let currentEditingNoteId = null;
 
-function openNoteModal(note = null) {
+function renderNoteCardContent(content) {
+  const trimmed = (content || "").trim();
+  const url = parseNoteUrl(trimmed);
+  if (url) {
+    return `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener" class="note-content-link" onclick="event.stopPropagation()">${escapeHtml(trimmed)}</a>`;
+  }
+  return escapeHtml(content);
+}
+
+function parseNoteUrl(text) {
+  if (!text) return null;
+  const urlMatch = text.match(/^(https?:\/\/[^\s]+|[^\s]+\.[^\s]{2,})$/i);
+  if (!urlMatch) return null;
+  let url = urlMatch[1];
+  if (!/^https?:\/\//i.test(url)) {
+    url = `https://${url}`;
+  }
+  return url;
+}
+
+function openNoteModal(note = null, readOnly = false) {
   const modal = $("note-modal");
   const titleInput = $("note-title");
   const headerInput = $("note-header");
   const contentInput = $("note-content");
   const tagsInput = $("note-tags-input");
   const deleteBtn = $("delete-note-btn");
+  const saveBtn = $("save-note-btn");
   const modalTitle = $("note-modal-title");
 
   if (!modal) return;
 
   if (note) {
     currentEditingNoteId = note.id;
-    modalTitle.textContent = "Edit Note";
+    modalTitle.textContent = readOnly ? "View Note" : "Edit Note";
     if (titleInput) titleInput.value = note.title || "";
     if (headerInput) headerInput.value = note.header || "";
     if (contentInput) contentInput.value = note.content || "";
     if (tagsInput) tagsInput.value = (note.tags || []).join(", ");
-    if (deleteBtn) deleteBtn.style.display = "inline-flex";
+    if (deleteBtn) deleteBtn.style.display = readOnly ? "none" : "inline-flex";
+    if (saveBtn) saveBtn.style.display = readOnly ? "none" : "inline-flex";
   } else {
     currentEditingNoteId = null;
     modalTitle.textContent = "New Note";
@@ -1204,19 +1418,66 @@ function openNoteModal(note = null) {
     if (contentInput) contentInput.value = "";
     if (tagsInput) tagsInput.value = "";
     if (deleteBtn) deleteBtn.style.display = "none";
+    if (saveBtn) saveBtn.style.display = "inline-flex";
+  }
+
+  if (titleInput) {
+    titleInput.readOnly = readOnly;
+    titleInput.disabled = false;
+  }
+  if (headerInput) {
+    headerInput.readOnly = readOnly;
+    headerInput.disabled = false;
+  }
+  if (contentInput) {
+    contentInput.readOnly = readOnly;
+    contentInput.disabled = false;
+  }
+  if (tagsInput) {
+    tagsInput.readOnly = readOnly;
+    tagsInput.disabled = false;
   }
 
   modal.classList.remove("hidden");
   modal.style.display = "flex";
-  if (titleInput) titleInput.focus();
+  if (titleInput && !readOnly) {
+    titleInput.focus();
+  }
 }
 
 function closeNoteModal() {
   const modal = $("note-modal");
+  const titleInput = $("note-title");
+  const headerInput = $("note-header");
+  const contentInput = $("note-content");
+  const tagsInput = $("note-tags-input");
+  const saveBtn = $("save-note-btn");
+  const deleteBtn = $("delete-note-btn");
+
   if (modal) {
     modal.classList.add("hidden");
     modal.style.display = "none";
   }
+
+  if (titleInput) {
+    titleInput.readOnly = false;
+    titleInput.disabled = false;
+  }
+  if (headerInput) {
+    headerInput.readOnly = false;
+    headerInput.disabled = false;
+  }
+  if (contentInput) {
+    contentInput.readOnly = false;
+    contentInput.disabled = false;
+  }
+  if (tagsInput) {
+    tagsInput.readOnly = false;
+    tagsInput.disabled = false;
+  }
+  if (saveBtn) saveBtn.style.display = "inline-flex";
+  if (deleteBtn) deleteBtn.style.display = "none";
+
   currentEditingNoteId = null;
 }
 
@@ -1333,6 +1594,200 @@ async function handleUpgrade() {
   }
 }
 
+// ---- Bulk Capture ----
+async function handleBulkCapture() {
+  const btn = $("bulk-leads-btn");
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin">⟳</span>';
+  }
+
+  showToast("Scanning search results...", "info");
+
+  try {
+    const result = await sendBg({ type: "INIT_BULK_CAPTURE" });
+    console.log("Bulk capture result:", result);
+
+    if (!result || !result.success) {
+      showToast(result?.error || "Failed to scan results", "error");
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = BULK_BTN_SVG;
+      }
+      return;
+    }
+
+    if (!result.leads || result.leads.length === 0) {
+      showToast("No leads found in search results", "error");
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = BULK_BTN_SVG;
+      }
+      return;
+    }
+
+    state.bulkLeads = result.leads;
+    renderBulkLeads();
+    showPanel("bulk");
+    showToast("✅ " + result.count + " leads loaded", "success");
+  } catch (error) {
+    console.error("Bulk capture error:", error);
+    showToast("Connection error", "error");
+  }
+
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = BULK_BTN_SVG;
+  }
+}
+
+const BULK_BTN_SVG = '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>';
+
+function renderBulkLeads() {
+  const list = $("bulk-list");
+  if (!list) return;
+
+  if (!state.bulkLeads || state.bulkLeads.length === 0) {
+    list.innerHTML = `
+      <div class="text-center text-muted" style="padding: 32px 20px;">
+        <div style="font-size: 13px;">No leads found</div>
+        <div style="font-size: 11px; margin-top: 4px;">Try a different search query</div>
+      </div>
+    `;
+    return;
+  }
+
+  list.innerHTML = state.bulkLeads.map(function(lead, index) {
+    const initial = (lead.name || "?")[0].toUpperCase();
+    return `
+      <div class="bulk-lead-item" data-index="${index}">
+        <input type="checkbox" class="bulk-checkbox" data-index="${index}" />
+        <div class="bulk-lead-avatar">
+          ${lead.photoUrl ? `<img src="${escapeHtml(lead.photoUrl)}" alt="${escapeHtml(lead.name)}" />` : initial}
+        </div>
+        <div class="bulk-lead-info">
+          <div class="bulk-lead-name">${escapeHtml(lead.name || "Unknown")}</div>
+          ${lead.title ? `<div class="bulk-lead-detail">${escapeHtml(lead.title)}</div>` : ""}
+          ${lead.company ? `<div class="bulk-lead-detail">${escapeHtml(lead.company)}</div>` : ""}
+          ${lead.location ? `<div class="bulk-lead-detail">${escapeHtml(lead.location)}</div>` : ""}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  // Add change listeners to checkboxes
+  list.querySelectorAll(".bulk-checkbox").forEach(function(cb) {
+    cb.addEventListener("change", function() {
+      const item = this.closest(".bulk-lead-item");
+      if (item) {
+        item.classList.toggle("selected", this.checked);
+      }
+      updateBulkStats();
+    });
+  });
+
+  updateBulkStats();
+
+  if ($("bulk-source-label")) {
+    $("bulk-source-label").textContent = state.bulkLeads.length + " leads";
+  }
+}
+
+function updateBulkStats() {
+  const checked = document.querySelectorAll("#bulk-list .bulk-checkbox:checked");
+  const selected = checked.length;
+  const total = state.bulkLeads.length;
+
+  if ($("bulk-total-count")) $("bulk-total-count").textContent = total;
+  if ($("bulk-selected-count")) $("bulk-selected-count").textContent = selected;
+
+  const saveBtn = $("bulk-save-btn");
+  if (saveBtn) {
+    saveBtn.disabled = selected === 0;
+    saveBtn.textContent = "Save Selected (" + selected + ")";
+  }
+
+  const selectAllBtn = $("bulk-select-all-btn");
+  if (selectAllBtn) {
+    selectAllBtn.textContent = selected === total && total > 0 ? "Deselect All" : "Select All";
+  }
+}
+
+function handleBulkSelectAll() {
+  const checkboxes = document.querySelectorAll("#bulk-list .bulk-checkbox");
+  const checked = document.querySelectorAll("#bulk-list .bulk-checkbox:checked");
+  const allChecked = checked.length === checkboxes.length && checkboxes.length > 0;
+  const newState = !allChecked;
+
+  checkboxes.forEach(function(cb) {
+    cb.checked = newState;
+    const item = cb.closest(".bulk-lead-item");
+    if (item) item.classList.toggle("selected", newState);
+  });
+
+  updateBulkStats();
+}
+
+async function handleBulkSave() {
+  const checkboxes = document.querySelectorAll("#bulk-list .bulk-checkbox:checked");
+  if (checkboxes.length === 0) {
+    showToast("No leads selected", "error");
+    return;
+  }
+
+  const selectedLeads = [];
+  checkboxes.forEach(function(cb) {
+    const index = parseInt(cb.getAttribute("data-index"));
+    const lead = state.bulkLeads[index];
+    if (lead) {
+      selectedLeads.push({
+        name: lead.name,
+        title: lead.title || "",
+        company: lead.company || "",
+        location: lead.location || "",
+        profileUrl: lead.profileUrl,
+        photoUrl: lead.photoUrl || "",
+      });
+    }
+  });
+
+  const saveBtn = $("bulk-save-btn");
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+  }
+
+  try {
+    const result = await sendBg({
+      type: "BULK_SAVE_LEADS",
+      leads: selectedLeads,
+    });
+
+    if (result && result.success) {
+      showToast("✅ Saved " + result.saved + " of " + selectedLeads.length + " leads", "success");
+
+      // Remove saved leads from the list
+      const indicesToRemove = new Set();
+      checkboxes.forEach(function(cb) {
+        indicesToRemove.add(parseInt(cb.getAttribute("data-index")));
+      });
+      state.bulkLeads = state.bulkLeads.filter(function(_, i) {
+        return !indicesToRemove.has(i);
+      });
+      renderBulkLeads();
+    } else {
+      showToast("❌ " + ((result && result.error) || "Save failed"), "error");
+    }
+  } catch (error) {
+    console.error("Bulk save error:", error);
+    showToast("Connection error", "error");
+  } finally {
+    if (saveBtn) {
+      updateBulkStats();
+    }
+  }
+}
+
 // ---- Helpers ----
 function debounce(func, wait) {
   let timeout;
@@ -1393,10 +1848,29 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
-function sendBg(message) {
+function sendBg(message, retries = 3) {
   return new Promise((resolve) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      resolve(response || { success: false, error: "No response from background" });
-    });
+    function attempt(n) {
+      try {
+        chrome.runtime.sendMessage(message, (response) => {
+          const lastError = chrome.runtime.lastError;
+          if (response && !lastError) {
+            resolve(response);
+          } else if (n > 0) {
+            console.log(`⏳ sendBg retry ${3 - n + 1}/${3} for ${message.type}${lastError ? ': ' + lastError.message : ''}`);
+            setTimeout(() => attempt(n - 1), 200);
+          } else {
+            resolve({ success: false, error: lastError ? lastError.message : "No response from background" });
+          }
+        });
+      } catch (e) {
+        if (n > 0) {
+          setTimeout(() => attempt(n - 1), 200);
+        } else {
+          resolve({ success: false, error: e.message });
+        }
+      }
+    }
+    attempt(retries);
   });
 }

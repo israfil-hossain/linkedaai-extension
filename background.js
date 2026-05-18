@@ -39,6 +39,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("📨 Background received message:", message.type, message);
 
   switch (message.type) {
+    case "PING":
+      sendResponse({ type: "PONG", status: "alive" });
+      return true;
+
     case "GET_PROFILE_FROM_TAB":
       getProfileFromActiveTab(sendResponse);
       return true;
@@ -65,6 +69,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case "INSERT_MESSAGE_IN_TAB":
       insertMessageInTab(message.text, sendResponse);
+      return true;
+
+    case "INIT_BULK_CAPTURE":
+      initBulkCapture(sendResponse);
+      return true;
+
+    case "BULK_SAVE_LEADS":
+      bulkSaveLeads(message.leads, sendResponse);
+      return true;
+
+    case "REMOVE_BULK_UI":
+      removeBulkUI(sendResponse);
       return true;
   }
 });
@@ -266,7 +282,7 @@ async function saveLead(payload, sendResponse) {
       return;
     }
 
-    const { profile, message, tone, roleTag, leadStatus } = payload;
+    const { profile, message, tone, tags, roleTag, leadStatus } = payload;
 
     if (!profile || !profile.name) {
       sendResponse({ success: false, error: "Invalid profile data" });
@@ -274,6 +290,8 @@ async function saveLead(payload, sendResponse) {
     }
 
     console.log("💾 Saving lead:", profile.name);
+
+    const finalTags = Array.isArray(tags) ? tags : (Array.isArray(profile.tags) ? profile.tags : []);
 
     const response = await fetch(`${API_BASE_URL}/api/leads`, {
       method: "POST",
@@ -293,6 +311,7 @@ async function saveLead(payload, sendResponse) {
           email: profile.email || "",
           phone: profile.phone || "",
         },
+        tags: finalTags,
         roleTag: roleTag || "",
         leadStatus: leadStatus || "",
         message: message || "",
@@ -340,6 +359,138 @@ async function insertMessageInTab(text, sendResponse) {
   } catch (err) {
     console.error("Insert message error:", err);
     sendResponse({ success: false, error: "Could not insert message." });
+  }
+}
+
+/**
+ * Forward INIT_BULK_CAPTURE to the active tab's content script
+ */
+async function initBulkCapture(sendResponse) {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) {
+      sendResponse({ success: false, error: "No active tab found" });
+      return;
+    }
+
+    // Ensure content script is alive
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: "PING" });
+    } catch {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["content.js"],
+      });
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    const result = await new Promise((resolve) => {
+      chrome.tabs.sendMessage(tab.id, { type: "INIT_BULK_CAPTURE" }, (response) => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          console.error("Bulk capture sendMessage failed:", lastError.message);
+          resolve({ success: false, error: lastError.message });
+          return;
+        }
+        resolve(response || { success: false, error: "No response from content script" });
+      });
+    });
+
+    console.log("Bulk capture response from content script:", result);
+    sendResponse(result);
+  } catch (err) {
+    console.error("Bulk capture error:", err);
+    sendResponse({ success: false, error: err.message || "Failed to start bulk capture" });
+  }
+}
+
+/**
+ * Save multiple leads in bulk
+ */
+async function bulkSaveLeads(leads, sendResponse) {
+  try {
+    const token = await getStoredToken();
+    if (!token) {
+      sendResponse({ success: false, error: "Please sign in first" });
+      return;
+    }
+
+    if (!Array.isArray(leads) || leads.length === 0) {
+      sendResponse({ success: false, error: "No leads to save" });
+      return;
+    }
+
+    let saved = 0;
+    let errors = [];
+
+    for (let i = 0; i < leads.length; i++) {
+      const lead = leads[i];
+      if (!lead.name || !lead.profileUrl) {
+        errors.push({ index: i, error: "Missing name or profileUrl" });
+        continue;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/leads`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            profile: {
+              name: lead.name,
+              title: lead.title || "",
+              company: lead.company || "",
+              location: lead.location || "",
+              profileUrl: lead.profileUrl,
+              photoUrl: lead.photoUrl || "",
+              email: "",
+              phone: "",
+            },
+            tags: [],
+            roleTag: "",
+            leadStatus: "",
+            message: "",
+            tone: "professional",
+          }),
+        });
+
+        if (response.ok) {
+          saved++;
+        } else {
+          const data = await response.json().catch(() => ({}));
+          errors.push({ index: i, error: data.error || `HTTP ${response.status}` });
+        }
+      } catch (e) {
+        errors.push({ index: i, error: e.message });
+      }
+    }
+
+    sendResponse({
+      success: saved > 0,
+      saved,
+      total: leads.length,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (err) {
+    console.error("Bulk save error:", err);
+    sendResponse({ success: false, error: err.message || "Failed to save leads" });
+  }
+}
+
+/**
+ * Remove bulk UI from the active tab
+ */
+async function removeBulkUI(sendResponse) {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id) {
+      await chrome.tabs.sendMessage(tab.id, { type: "REMOVE_BULK_UI" }).catch(() => {});
+    }
+    sendResponse({ success: true });
+  } catch {
+    sendResponse({ success: true });
   }
 }
 

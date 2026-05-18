@@ -631,8 +631,10 @@
         } else if (message.type === "INSERT_MESSAGE") {
           insertMessageIntoLinkedIn(message.text);
           sendResponse({ success: true });
+        } else if (message.type === "INIT_BULK_CAPTURE") {
+          await handleBulkCaptureMsg(sendResponse);
         } else {
-          sendResponse({ success: false, error: "Unknown message type" });
+          console.log("Ignoring unknown message type:", message.type);
         }
       } catch (error) {
         console.error("❌ Error handling message:", error);
@@ -730,5 +732,217 @@
     return profile;
   };
 
-  console.log("💡 Test function available: window.testLinkedInScraper()");
+  // ═══════════════════════════════════════════════════════════════
+  // BULK LEADS CAPTURE — Scrape search results for popup display
+  // ═══════════════════════════════════════════════════════════════
+
+  const SEARCH_CARD_SELECTOR = [
+    ".reusable-search__result-container",
+    'li[data-occludable-job-id]',
+    '[data-view-name="search-entity-result"]',
+    ".entity-result",
+    "li.search-result",
+    ".search-result__wrapper",
+    ".search-results__list-item",
+    "div[class*='search-entity']",
+  ].join(",");
+
+  function isSearchResultsPage() {
+    const path = window.location.pathname || "";
+    const host = window.location.hostname || "";
+    return (
+      (host === "linkedin.com" || host.endsWith(".linkedin.com")) &&
+      (
+        path.includes("/search/results/people") ||
+        path.includes("/search/results/people/") ||
+        path.includes("/sales/search/people") ||
+        path.includes("/recruiter/search") ||
+        path.includes("/search/results/all")
+      )
+    );
+  }
+
+  function waitForSearchResults(timeout) {
+    timeout = timeout || 8000;
+    return new Promise(function (resolve) {
+      var existing = document.querySelector(
+        ".reusable-search__result-container, .entity-result, [data-view-name='search-entity-result'], .search-result__wrapper, .search-results__list-item"
+      );
+      if (existing) return resolve(true);
+      var observer = new MutationObserver(function () {
+        var el = document.querySelector(
+          ".reusable-search__result-container, .entity-result, [data-view-name='search-entity-result'], .search-result__wrapper, .search-results__list-item"
+        );
+        if (el) {
+          observer.disconnect();
+          resolve(true);
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      setTimeout(function () {
+        observer.disconnect();
+        resolve(false);
+      }, timeout);
+    });
+  }
+
+  function extractLeadFromCard(card) {
+    try {
+      var name = "";
+      var title = "";
+      var company = "";
+      var location = "";
+      var profileUrl = "";
+      var photoUrl = "";
+
+      var nameSelectors = [
+        ".entity-result__title-text a span[aria-hidden='true']",
+        ".entity-result__title-text a span",
+        ".app-aware-link span[aria-hidden='true']",
+        "a[href*='/in/'] span:first-child",
+        ".actor-name",
+        '[data-anonymize="person-name"]',
+        ".search-result__result-link span",
+      ];
+      for (var i = 0; i < nameSelectors.length; i++) {
+        var el = card.querySelector(nameSelectors[i]);
+        if (el && el.textContent.trim()) {
+          name = el.textContent.trim();
+          break;
+        }
+      }
+      if (!name) {
+        var link = card.querySelector('a[href*="/in/"]');
+        if (link) name = link.textContent.trim();
+      }
+
+      var titleSelectors = [
+        ".entity-result__primary-subtitle",
+        '[data-anonymize="headline"]',
+        ".search-result__info .subline-level-1",
+        ".entity-result__summary",
+      ];
+      for (var i = 0; i < titleSelectors.length; i++) {
+        var el = card.querySelector(titleSelectors[i]);
+        if (el) {
+          var txt = el.textContent.trim();
+          if (txt && txt.length < 300) { title = txt; break; }
+        }
+      }
+
+      var companySelectors = [
+        ".entity-result__secondary-subtitle",
+        ".entity-result__subtitle",
+        '[data-anonymize="company-name"]',
+        ".entity-result__summary-item",
+      ];
+      for (var i = 0; i < companySelectors.length; i++) {
+        var el = card.querySelector(companySelectors[i]);
+        if (el) {
+          var txt = el.textContent.trim();
+          if (txt && txt.length < 150) { company = txt; break; }
+        }
+      }
+
+      var locationSelectors = [
+        ".entity-result__tertiary-subtitle",
+        '[data-anonymize="location"]',
+        ".entity-result__caption",
+      ];
+      for (var i = 0; i < locationSelectors.length; i++) {
+        var el = card.querySelector(locationSelectors[i]);
+        if (el) {
+          var txt = el.textContent.trim();
+          if (txt && /^[A-Za-z0-9\s,.\-()]+$/.test(txt) && txt.length < 100) { location = txt; break; }
+        }
+      }
+
+      var linkEl = card.querySelector('a[href*="/in/"], a[href*="/sales/people/"], a[href*="/pub/"], a[href*="/profile/"]');
+      if (linkEl) {
+        var href = linkEl.getAttribute("href");
+        if (href) {
+          var url = href.startsWith("http") ? href : "https://www.linkedin.com" + href;
+          profileUrl = url.split("?")[0].split("#")[0];
+        }
+      }
+      if (!profileUrl) {
+        var anyLink = card.querySelector('a[href*="/in/"], a[href*="/sales/people/"], a[href*="/pub/"], a[href*="/profile/"]');
+        if (anyLink) {
+          var href = anyLink.getAttribute("href");
+          if (href) {
+            var url = href.startsWith("http") ? href : "https://www.linkedin.com" + href;
+            profileUrl = url.split("?")[0].split("#")[0];
+          }
+        }
+      }
+
+      var imgSelectors = [
+        "img[src*='licdn.com']",
+        "img.EntityPhoto",
+        "img[class*='EntityPhoto']",
+        "li.reusable-search__result-container img",
+      ];
+      for (var i = 0; i < imgSelectors.length; i++) {
+        var el = card.querySelector(imgSelectors[i]);
+        if (el && el.src) { photoUrl = el.src; break; }
+      }
+
+      if (!name || !profileUrl) return null;
+
+      if (!company && title) {
+        var atMatch = title.match(/\s+at\s+(.+)/i);
+        if (atMatch) {
+          company = atMatch[1].trim();
+          title = title.replace(/\s+at\s+.+$/i, "").trim();
+        }
+      }
+
+      return { name: name, title: title, company: company, location: location, profileUrl: profileUrl, photoUrl: photoUrl };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function scrapeAllSearchResults() {
+    var leads = [];
+    var cards = document.querySelectorAll(SEARCH_CARD_SELECTOR);
+    for (var i = 0; i < cards.length; i++) {
+      var card = cards[i];
+      if (card.closest(".artdeco-pagination")) continue;
+      if (card.querySelector(".artdeco-pagination")) continue;
+      if (card.innerText.includes("Show more results")) continue;
+      var lead = extractLeadFromCard(card);
+      if (lead) leads.push(lead);
+    }
+    return leads;
+  }
+
+  async function handleBulkCaptureMsg(sendResponse) {
+    try {
+      console.log("[BulkCapture] url=", window.location.href);
+      console.log("[BulkCapture] search page=", isSearchResultsPage());
+
+      if (!isSearchResultsPage()) {
+        sendResponse({
+          success: false,
+          error: "Not on a LinkedIn search results page. Current URL: " + window.location.href,
+        });
+        return;
+      }
+
+      var loaded = await waitForSearchResults(8000);
+      console.log("[BulkCapture] results loaded=", loaded);
+      if (!loaded) {
+        sendResponse({ success: false, error: "Could not find search results on this page." });
+        return;
+      }
+
+      var leads = scrapeAllSearchResults();
+      console.log("[BulkCapture] found leads=", leads.length);
+      sendResponse({ success: true, leads: leads, count: leads.length });
+    } catch (e) {
+      console.error("[BulkCapture] error", e);
+      sendResponse({ success: false, error: e.message || "Unknown error" });
+    }
+  }
 })();
