@@ -43,12 +43,13 @@
     }
     
     html, body {
-      height: 600px;
+      height: 100%;
       overflow: hidden;
     }
     body {
-      width: 380px;
-      height: 600px;
+      width: 100%;
+      height: 100%;
+      min-width: 320px;
       background: var(--bg-primary);
       color: var(--text-primary);
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -485,20 +486,15 @@
     }
     
     /* Tone Selector */
-    .tone-grid {
-      display: grid;
-      grid-template-columns: repeat(6, 1fr);
-      gap: 6px;
-    }
+
 
     .tone-btn {
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 2px;
-      width: 34px;
-      height: 30px;
-      padding: 0;
+      gap: 1px;
+      padding: 4px 2px;
       background: var(--bg-primary);
       border: 1.5px solid var(--border);
       border-radius: var(--radius-md);
@@ -506,7 +502,6 @@
       transition: var(--transition);
       font-family: inherit;
       color: var(--text-secondary);
-      font-size: 11px;
     }
 
     .tone-btn:hover {
@@ -518,15 +513,18 @@
       border-color: var(--primary);
       background: var(--primary-light);
       color: var(--primary);
-      font-weight: 600;
     }
 
     .tone-emoji {
-      font-size: 15px;
+      font-size: 16px;
+      line-height: 1.2;
     }
 
     .tone-label {
-      display: none;
+      font-size: 7px;
+      line-height: 1.1;
+      color: inherit;
+      white-space: nowrap;
     }
     
     /* Generate Button */
@@ -785,113 +783,6 @@
       font-size: 11px;
     }
     
-    /* Bulk Panel */
-    .bulk-header {
-      padding: 10px 14px;
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-
-    .bulk-stats {
-      display: flex;
-      gap: 8px;
-      padding: 6px 0;
-      font-size: 11px;
-      color: var(--text-secondary);
-    }
-
-    .bulk-list {
-      flex: 1;
-      overflow-y: auto;
-      padding: 8px 10px;
-    }
-
-    .bulk-lead-item {
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-      padding: 8px 10px;
-      background: var(--bg-primary);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      margin-bottom: 6px;
-      transition: var(--transition);
-    }
-
-    .bulk-lead-item:hover {
-      border-color: var(--primary);
-    }
-
-    .bulk-lead-item.selected {
-      border-color: var(--primary);
-      background: var(--primary-light);
-    }
-
-    .bulk-checkbox {
-      width: 16px;
-      height: 16px;
-      margin-top: 2px;
-      flex-shrink: 0;
-      accent-color: var(--primary);
-      cursor: pointer;
-    }
-
-    .bulk-lead-avatar {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--primary), #7c3aed);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-weight: 700;
-      font-size: 12px;
-      flex-shrink: 0;
-      overflow: hidden;
-    }
-
-    .bulk-lead-avatar img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-
-    .bulk-lead-info {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .bulk-lead-name {
-      font-weight: 600;
-      font-size: 13px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .bulk-lead-detail {
-      font-size: 11px;
-      color: var(--text-secondary);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .bulk-footer {
-      padding: 10px 14px;
-      border-top: 1px solid var(--border);
-      display: flex;
-      gap: 8px;
-      flex-shrink: 0;
-      background: var(--bg-primary);
-    }
-
-    .bulk-footer .btn {
-      padding: 8px 12px;
-      font-size: 12px;
-    }
-
     /* Notes Panel */
     .notes-header {
       padding: 10px 14px;
@@ -944,12 +835,72 @@
       display: inline-block;
     }
 
+    .note-card-sticky {
+      background: #FFF9C4 !important;
+      border-color: #FCE83A !important;
+    }
+
+    .note-copy-btn {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: var(--transition);
+    }
+    .note-copy-btn:hover {
+      color: var(--primary);
+      border-color: var(--primary);
+    }
+
+    .note-sticky-toggle {
+      background: transparent;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      transition: var(--transition);
+    }
+    .note-sticky-toggle.active {
+      background: #FFF9C4;
+      border-color: #FCE83A;
+    }
+
     .note-meta {
       display: flex;
       align-items: center;
       gap: 6px;
       font-size: 10px;
       color: var(--text-tertiary);
+    }
+
+    .notes-loading-more {
+      text-align: center;
+      padding: 12px;
+      font-size: 11px;
+      color: var(--text-tertiary);
+    }
+
+    #sticky-toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      user-select: none;
+    }
+    #sticky-toggle-row input[type="checkbox"] {
+      accent-color: #F59E0B;
     }
     
     /* Settings Panel */
@@ -1024,6 +975,15 @@
     /* Utilities */
     .hidden { display: none !important; }
     .spin { animation: spin 0.8s linear infinite; display: inline-block; }
+    .button-spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
     @keyframes spin { to { transform: rotate(360deg); } }
     
     .text-center { text-align: center; }
@@ -1043,7 +1003,7 @@
   <!-- Header -->
   <div class="header">
     <div class="logo">
-      <div class="logo-icon">in</div>
+      <img class="logo-icon" src="../icons/icon48.png" alt="Linkedaai">
       <span>Linkedaai</span>
     </div>
     <div class="header-actions" id="header-actions">
@@ -1073,14 +1033,6 @@
         <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="3"/>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-        </svg>
-      </button>
-      <button class="btn-icon header-action-btn" id="bulk-leads-btn" title="Bulk Capture" style="display: none;">
-        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <rect x="3" y="3" width="7" height="7" rx="1"/>
-          <rect x="14" y="3" width="7" height="7" rx="1"/>
-          <rect x="3" y="14" width="7" height="7" rx="1"/>
-          <rect x="14" y="14" width="7" height="7" rx="1"/>
         </svg>
       </button>
     </div>
@@ -1128,6 +1080,7 @@
             <div class="profile-detail" id="profile-location" style="font-size: 11px;">—</div>
             <div class="profile-detail" id="profile-email" style="font-size: 11px; color: var(--primary);">—</div>
             <div class="profile-detail" id="profile-phone" style="font-size: 11px; color: var(--success);">—</div>
+            <div class="profile-detail" id="profile-website" style="font-size: 11px; color: var(--text-secondary); display: none;">—</div>
           </div>
           <button class="btn-icon" id="refresh-profile-btn" title="Refresh" style="width: 24px; height: 24px;">
             <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -1153,101 +1106,14 @@
       </div>
     </div>
 
-    <!-- Tone Section -->
-    <div class="section">
-      <div class="section-title">Message Tone</div>
-      <div class="tone-grid">
-        <button class="tone-btn active" data-tone="professional" title="Professional">
-          <span class="tone-emoji">💼</span>
-          <span class="tone-label">Professional</span>
-        </button>
-        <button class="tone-btn" data-tone="friendly" title="Friendly">
-          <span class="tone-emoji">😊</span>
-          <span class="tone-label">Friendly</span>
-        </button>
-        <button class="tone-btn" data-tone="casual" title="Casual">
-          <span class="tone-emoji">✌️</span>
-          <span class="tone-label">Casual</span>
-        </button>
-        <button class="tone-btn" data-tone="direct" title="Direct">
-          <span class="tone-emoji">🎯</span>
-          <span class="tone-label">Direct</span>
-        </button>
-        <button class="tone-btn" data-tone="witty" title="Witty">
-          <span class="tone-emoji">⚡</span>
-          <span class="tone-label">Witty</span>
-        </button>
-        <button class="tone-btn" data-tone="empathetic" title="Empathetic">
-          <span class="tone-emoji">🤝</span>
-          <span class="tone-label">Empathetic</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Generate Section -->
-    <div class="section">
-      <button class="generate-btn" id="generate-btn" disabled>
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-        </svg>
-        Generate Message
-      </button>
-    </div>
-
-    <!-- Output Section -->
-    <div class="section output-section">
-      <div class="section-title">Generated Message</div>
-      <div class="output-box" id="output-box">
-        <span class="output-placeholder" id="output-placeholder">Your AI-generated message will appear here...</span>
-      </div>
-      <div class="actions-row mt-8 hidden" id="output-actions" style="margin-top: 8px;">
-        <button class="btn btn-secondary" id="copy-btn" style="padding: 6px 10px; font-size: 11px;">
-          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <rect x="9" y="9" width="13" height="13" rx="2"/>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-          </svg>
-          Copy
-        </button>
-        <button class="btn btn-secondary" id="insert-btn" style="padding: 6px 10px; font-size: 11px;">
-          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M12 5v14"/>
-            <path d="M5 12l7 7 7-7"/>
-          </svg>
-          Insert
-        </button>
-        <button class="btn btn-ghost" id="regen-btn" style="padding: 6px 10px; font-size: 11px;">
-          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M23 4v6h-6"/>
-            <path d="M1 20v-6h6"/>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/>
-            <path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-
-    <!-- Save Section -->
-    <div class="section" style="display: flex; gap: 8px; align-items: center;">
-      <button class="btn btn-success" id="save-lead-btn" disabled style="flex: 1; padding: 8px 12px; font-size: 12px;">
-        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-          <polyline points="17 21 17 13 7 13 7 21"/>
-          <polyline points="7 3 7 8 15 8"/>
-        </svg>
-        Save Lead
-      </button>
-      <button class="btn btn-ghost" id="add-details-btn" style="font-size: 11px; color: var(--text-tertiary); padding: 8px 10px;">
-        + Details
-      </button>
-    </div>
-
-    <!-- Extra Lead Details (hidden by default) -->
-    <div class="section hidden" id="lead-details-section">
+    <!-- Extra Lead Details -->
+    <div class="section" id="lead-details-section">
       <div class="section-title">Additional Info</div>
       <div style="display: flex; flex-direction: column; gap: 8px;">
         <input type="email" class="input-field" id="lead-email" placeholder="Email address" style="padding: 8px 12px; font-size: 12px;" />
         <input type="tel" class="input-field" id="lead-phone" placeholder="Phone number" style="padding: 8px 12px; font-size: 12px;" />
         <input type="url" class="input-field" id="lead-linkedin" placeholder="LinkedIn URL" style="padding: 8px 12px; font-size: 12px;" />
+        <input type="url" class="input-field" id="lead-website" placeholder="Website URL" style="padding: 8px 12px; font-size: 12px;" />
         <input type="text" class="input-field" id="lead-tags" placeholder="Tags (comma separated)" style="padding: 8px 12px; font-size: 12px;" />
         <div style="display: flex; gap: 8px;">
           <div style="flex: 1;">
@@ -1255,8 +1121,17 @@
             <select id="lead-role-tag" class="input-field" style="padding: 6px 10px; font-size: 12px;">
               <option value="">Select Role</option>
               <option value="founder">Founder</option>
+              <option value="cofounder">Cofounder</option>
+              <option value="ceo">CEO</option>
+              <option value="cto">CTO</option>
+              <option value="cmo">CMO</option>
+              <option value="coo">COO</option>
+              <option value="director">Director</option>
               <option value="manager">Manager</option>
               <option value="hr">HR</option>
+              <option value="recruiter">Recruiter</option>
+              <option value="sales">Sales</option>
+              <option value="other">Other</option>
             </select>
           </div>
           <div style="flex: 1;">
@@ -1279,40 +1154,65 @@
         </div>
         <!-- Google Search Results -->
         <div id="google-search-results" style="display: none; margin-top: 8px; padding: 12px; background: var(--bg-tertiary); border-radius: 8px;"></div>
+        <button class="btn btn-success" id="save-lead-btn" disabled style="width: 100%; padding: 10px 12px; font-size: 13px; margin-top: 8px;">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+            <polyline points="17 21 17 13 7 13 7 21"/>
+            <polyline points="7 3 7 8 15 8"/>
+          </svg>
+          Save Lead
+        </button>
       </div>
     </div>
 
-  </div>
-
-  <!-- Bulk Panel -->
-  <div class="panel" id="bulk-panel">
-    <div class="bulk-header">
-      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-        <button class="btn-icon" id="bulk-back-btn" style="width: 24px; height: 24px; flex-shrink: 0;">
-          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <polyline points="15 18 9 12 15 6"/>
+    <!-- Manual Lead Section (inline, no modal) -->
+    <div class="section hidden" id="manual-lead-section">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+        <div class="section-title" style="margin-bottom: 0;">New Lead</div>
+        <button class="btn-icon" id="close-manual-lead-btn" style="width: 24px; height: 24px;">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
           </svg>
         </button>
-        <h2 style="font-size: 15px; font-weight: 700; white-space: nowrap;">Bulk Leads</h2>
-        <span style="font-size: 11px; color: var(--text-tertiary); margin-left: auto;" id="bulk-source-label">—</span>
       </div>
-      <div class="bulk-stats">
-        <span>Found: <strong id="bulk-total-count">0</strong></span>
-        <span>Selected: <strong id="bulk-selected-count">0</strong></span>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <input type="text" id="manual-lead-name" class="input-field" placeholder="Name *" style="padding: 8px 10px; font-size: 12px;" />
+        <input type="text" id="manual-lead-company" class="input-field" placeholder="Company" style="padding: 8px 10px; font-size: 12px;" />
+        <input type="text" id="manual-lead-title" class="input-field" placeholder="Title" style="padding: 8px 10px; font-size: 12px;" />
+        <input type="email" id="manual-lead-email" class="input-field" placeholder="Email" style="padding: 8px 10px; font-size: 12px;" />
+        <input type="tel" id="manual-lead-phone" class="input-field" placeholder="Phone" style="padding: 8px 10px; font-size: 12px;" />
+        <input type="url" id="manual-lead-linkedin" class="input-field" placeholder="LinkedIn URL" style="padding: 8px 10px; font-size: 12px;" />
+        <div style="display: flex; gap: 6px;">
+            <select id="manual-lead-role" class="input-field" style="flex: 1; padding: 6px 8px; font-size: 11px;">
+              <option value="">Role</option>
+              <option value="founder">Founder</option>
+              <option value="cofounder">Cofounder</option>
+              <option value="ceo">CEO</option>
+              <option value="cto">CTO</option>
+              <option value="cmo">CMO</option>
+              <option value="coo">COO</option>
+              <option value="director">Director</option>
+              <option value="manager">Manager</option>
+              <option value="hr">HR</option>
+              <option value="recruiter">Recruiter</option>
+              <option value="sales">Sales</option>
+              <option value="other">Other</option>
+            </select>
+          <select id="manual-lead-status" class="input-field" style="flex: 1; padding: 6px 8px; font-size: 11px;">
+            <option value="">Status</option>
+            <option value="hot">Hot</option>
+            <option value="medium">Medium</option>
+            <option value="cold">Cold</option>
+          </select>
+        </div>
+        <input type="text" id="manual-lead-tags" class="input-field" placeholder="Tags (comma separated)" style="padding: 8px 10px; font-size: 12px;" />
+        <textarea id="manual-lead-notes" class="input-field" placeholder="Notes" rows="2" style="padding: 8px 10px; font-size: 12px; resize: none;"></textarea>
+        <button class="btn btn-primary" id="save-manual-lead-btn" style="padding: 8px 12px; font-size: 12px;">
+          Save Lead
+        </button>
       </div>
     </div>
 
-    <div class="bulk-list" id="bulk-list">
-      <div class="text-center text-muted" style="padding: 32px 20px;">
-        <div style="font-size: 13px;">Click Bulk Capture to scan search results</div>
-      </div>
-    </div>
-
-    <div class="bulk-footer">
-      <button class="btn btn-secondary" id="bulk-select-all-btn" style="flex: 0 0 auto;">Select All</button>
-      <button class="btn btn-primary" id="bulk-save-btn" disabled style="flex: 1;">Save Selected (0)</button>
-      <button class="btn btn-ghost" id="bulk-cancel-btn" style="flex: 0 0 auto;">Cancel</button>
-    </div>
   </div>
 
   <!-- Leads Panel -->
@@ -1380,6 +1280,10 @@
       </div>
     </div>
 
+    <label id="sticky-toggle-row">
+      <input type="checkbox" id="sticky-toggle">
+      📌 Show sticky only
+    </label>
     <div class="notes-list" id="notes-list">
       <div class="text-center text-muted" style="padding: 32px 20px;">
         <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom: 8px;">
@@ -1391,6 +1295,7 @@
         <div style="font-size: 13px;">No notes yet</div>
         <div style="font-size: 11px; margin-top: 2px;">Create your first note!</div>
       </div>
+      <div id="notes-scroll-sentinel" style="height:1px"></div>
     </div>
   </div>
 
@@ -1455,49 +1360,6 @@
           <button class="btn btn-primary" id="save-note-btn" style="flex: 1; padding: 8px 12px; font-size: 13px;">Save</button>
           <button class="btn btn-ghost" id="delete-note-btn" style="color: var(--danger); padding: 8px 12px; font-size: 13px; display: none;">Delete</button>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Manual Lead Modal -->
-  <div class="modal hidden" id="manual-lead-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center;">
-    <div id="manual-lead-form" style="background: var(--bg-primary); border-radius: var(--radius-lg); padding: 16px; width: 92%; max-width: 340px; max-height: 82vh; overflow-y: auto; box-shadow: var(--shadow-lg);">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <h3 style="font-size: 14px; font-weight: 600;">New Lead</h3>
-        <button class="btn-icon" id="close-manual-lead-btn" style="width: 28px; height: 28px;">
-          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M18 6L6 18M6 6l12 12"/>
-          </svg>
-        </button>
-      </div>
-      <div style="display: flex; flex-direction: column; gap: 8px;">
-        <input type="text" id="manual-lead-name" class="input-field" placeholder="Name *" style="padding: 8px 10px; font-size: 12px;" />
-        <input type="text" id="manual-lead-company" class="input-field" placeholder="Company" style="padding: 8px 10px; font-size: 12px;" />
-        <input type="text" id="manual-lead-title" class="input-field" placeholder="Title" style="padding: 8px 10px; font-size: 12px;" />
-        <input type="email" id="manual-lead-email" class="input-field" placeholder="Email" style="padding: 8px 10px; font-size: 12px;" />
-        <input type="tel" id="manual-lead-phone" class="input-field" placeholder="Phone" style="padding: 8px 10px; font-size: 12px;" />
-        <input type="url" id="manual-lead-linkedin" class="input-field" placeholder="LinkedIn URL" style="padding: 8px 10px; font-size: 12px;" />
-        <div style="display: flex; gap: 6px;">
-          <select id="manual-lead-role" class="input-field" style="flex: 1; padding: 6px 8px; font-size: 11px;">
-            <option value="">Role</option>
-            <option value="founder">Founder</option>
-            <option value="cofounder">Cofounder</option>
-            <option value="ceo">CEO</option>
-            <option value="manager">Manager</option>
-            <option value="hr">HR</option>
-          </select>
-          <select id="manual-lead-status" class="input-field" style="flex: 1; padding: 6px 8px; font-size: 11px;">
-            <option value="">Status</option>
-            <option value="hot">Hot</option>
-            <option value="medium">Medium</option>
-            <option value="cold">Cold</option>
-          </select>
-        </div>
-        <input type="text" id="manual-lead-tags" class="input-field" placeholder="Tags (comma separated)" style="padding: 8px 10px; font-size: 12px;" />
-        <textarea id="manual-lead-notes" class="input-field" placeholder="Notes" rows="2" style="padding: 8px 10px; font-size: 12px; resize: none;"></textarea>
-        <button class="btn btn-primary" id="save-manual-lead-btn" style="padding: 8px 12px; font-size: 12px; margin-top: 4px;">
-          Save Lead
-        </button>
       </div>
     </div>
   </div>

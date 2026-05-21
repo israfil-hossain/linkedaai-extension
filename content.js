@@ -61,9 +61,14 @@
             profile.name = item.name || "";
             profile.photoUrl = item.image?.contentUrl || item.image?.url || "";
 
-            // Job title / worksFor
-            if (item.jobTitle) profile.title = item.jobTitle;
-            if (item.worksFor?.name) profile.company = item.worksFor.name;
+            // Job title / worksFor (both can be arrays in current LinkedIn)
+            if (item.jobTitle) {
+              profile.title = Array.isArray(item.jobTitle) ? item.jobTitle[0] : item.jobTitle;
+            }
+            if (item.worksFor) {
+              const wf = Array.isArray(item.worksFor) ? item.worksFor[0] : item.worksFor;
+              if (wf?.name) profile.company = wf.name;
+            }
 
             // Location
             if (item.address?.addressLocality) {
@@ -221,6 +226,17 @@
         }
       }
 
+      // Fallback: extract company from headline "X at Y" pattern
+      if (!profile.company && profile.title) {
+        const atMatch = profile.title.match(/\bat\s+(.+)$/i);
+        if (atMatch) {
+          profile.company = atMatch[1].trim();
+          // Remove company part from title
+          profile.title = profile.title.replace(/\s+at\s+.+$/, "").trim();
+          console.log("✅ Company from headline parse:", profile.company);
+        }
+      }
+
       // Fallback: first experience item
       if (!profile.company) {
         const expSection = document.querySelector("#experience, section[data-section='experience'], div[id*='experience']");
@@ -245,6 +261,7 @@
       const locationSelectors = [
         "[data-test-id='person-location']",
         ".top-card-layout__first-subline",
+        ".top-card-layout__second-subline",
         ".profile-topcard__location",
         ".text-body-small.inline.t-black--light.break-words",
         "[data-anonymize='location']",
@@ -292,12 +309,13 @@
         ".profile-photo-edit__preview",
         "[data-test-id='profile-photo'] img",
         ".top-card-layout__entity-image",
+        "img.top-card__profile-image",
       ];
       for (const sel of photoSelectors) {
         const el = scope.querySelector(sel);
-        if (el?.src) {
-          profile.photoUrl = el.src;
-          break;
+        if (el) {
+          profile.photoUrl = el.src || el.getAttribute("data-delayed-url") || "";
+          if (profile.photoUrl) break;
         }
       }
       // Fallback: any reasonably-sized image in top card
@@ -305,8 +323,9 @@
         const imgs = topCard.querySelectorAll("img");
         for (const img of imgs) {
           const rect = img.getBoundingClientRect();
-          if (rect.width >= 80 && rect.width <= 400 && rect.height >= 80 && rect.height <= 400 && img.src) {
-            profile.photoUrl = img.src;
+          const url = img.src || img.getAttribute("data-delayed-url") || "";
+          if (rect.width >= 80 && rect.width <= 400 && rect.height >= 80 && rect.height <= 400 && url) {
+            profile.photoUrl = url;
             break;
           }
         }
@@ -438,7 +457,9 @@
         const phoneLink = contactSection.querySelector('a[href^="tel:"]');
         if (phoneLink) result.phone = phoneLink.href.replace("tel:", "");
         const webLink = contactSection.querySelector('a[href^="http"]');
-        if (webLink) result.website = webLink.href;
+        if (webLink && !webLink.href.includes("linkedin.com") && !webLink.href.includes("licdn.com")) {
+          result.website = webLink.href;
+        }
         return result;
       }
 
@@ -449,6 +470,11 @@
         "button[aria-label*='contact information']",
         "a[href*='overlay/contact-info']",
         "button[id*='contact-info']",
+        "section a[href*='overlay/contact-info']",
+        "[data-view-name='profile-card'] a[href*='contact-info']",
+        // 2025 LinkedIn patterns
+        "a[href*='contact-info']",
+        "button[class*='contact-info']",
       ];
 
       let contactBtn = null;
@@ -461,7 +487,7 @@
       if (!contactBtn) {
         const allBtns = document.querySelectorAll("button, a");
         for (const btn of allBtns) {
-          const text = getText(btn).toLowerCase();
+          const text = getText(btn).toLowerCase().replace(/\s+/g, " ");
           if (text === "contact info" || text.includes("contact information")) {
             contactBtn = btn;
             break;
@@ -473,10 +499,10 @@
         console.log("📇 Clicking Contact info button...");
         contactBtn.click();
         // Wait for modal to appear
-        await new Promise(r => setTimeout(r, 1200));
+        await new Promise(r => setTimeout(r, 1500));
 
         const modal = document.querySelector(
-          ".pv-contact-info, [data-test-id='contact-info'], div[role='dialog'] div[class*='contact'], .artdeco-modal__content"
+          ".pv-contact-info, [data-test-id='contact-info'], div[role='dialog'] div[class*='contact'], .artdeco-modal__content, div[class*='contact-info'], section[class*='contact-info']"
         );
         if (modal) {
           // Email
@@ -487,27 +513,50 @@
           const phoneEl = modal.querySelector('a[href^="tel:"]');
           if (phoneEl) result.phone = phoneEl.href.replace("tel:", "");
 
-          // Website
-          const webEl = modal.querySelector('a[href^="http"]:not([href*="linkedin.com"])');
-          if (webEl) result.website = webEl.href;
+          // Website — filter out LinkedIn/liCDN links
+          const webEl = modal.querySelectorAll('a[href^="http"]');
+          for (const el of webEl) {
+            const href = el.href;
+            if (!href.includes("linkedin.com") && !href.includes("licdn.com") && !href.includes("google.com") && !href.includes("facebook.com") && !href.includes("twitter.com") && !href.includes("x.com")) {
+              result.website = href;
+              break;
+            }
+          }
 
           // Also try text-based extraction
-          const sections = modal.querySelectorAll('section, div[class*="contact-info__"]');
+          const sections = modal.querySelectorAll('section, div[class*="contact-info__"], li[class*="contact-info"], div[class*="ci-container"]');
           for (const sec of sections) {
-            const header = sec.querySelector("h3, .pv-contact-info__header");
-            const valueEl = sec.querySelector("a, span, .pv-contact-info__ci-container");
+            const header = sec.querySelector("h3, .pv-contact-info__header, dt, .t-16");
+            const valueEl = sec.querySelector("a, span, .pv-contact-info__ci-container, dd, .t-14");
             if (header && valueEl) {
               const headerText = getText(header).toLowerCase();
               const value = getText(valueEl);
               if (headerText.includes("email") && !result.email) result.email = value;
               if (headerText.includes("phone") && !result.phone) result.phone = value;
-              if (headerText.includes("website") && !result.website) result.website = value;
+              if (headerText.includes("website") && !result.website) {
+                const cleanUrl = value.startsWith("http") ? value : `https://${value}`;
+                result.website = cleanUrl;
+              }
             }
           }
 
-          // Close modal
-          const closeBtn = document.querySelector("button[aria-label='Dismiss'], .artdeco-modal__dismiss, button[class*='dismiss']");
-          if (closeBtn) closeBtn.click();
+          // Close modal — try multiple selectors + escape key fallback
+          const closeBtn = modal.querySelector("button[aria-label='Dismiss'], .artdeco-modal__dismiss, button[class*='dismiss'], button[class*='close'], .modal__dismiss, .artdeco-modal__close");
+          if (closeBtn) {
+            closeBtn.click();
+          } else {
+            // Try close from document scope
+            const dismissBtn = document.querySelector("button[aria-label='Dismiss'], .artdeco-modal__dismiss, button[class*='dismiss']");
+            if (dismissBtn) {
+              dismissBtn.click();
+            } else {
+              // Escape key fallback
+              document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+            }
+          }
+        } else {
+          // Modal didn't appear, try escape to close any partial overlay
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
         }
       }
     } catch (e) {
@@ -546,7 +595,24 @@
   async function scrapeProfileData() {
     console.log("🔍 Starting improved profile scrape...");
 
-    // Run all strategies in parallel
+    let profile;
+
+    // On feed/home page, use feed-specific scraping
+    if (!window.location.href.includes("/in/")) {
+      const feed = scrapeFromFeedPage();
+      if (feed.name) {
+        profile = mergeProfiles(feed, scrapeFromMeta());
+        console.log("✅ Feed page profile:", profile);
+        try {
+          const url = new URL(window.location.href);
+          profile.profileUrl = url.origin + url.pathname;
+          profile.linkedinUrl = profile.profileUrl;
+        } catch {}
+        return profile;
+      }
+    }
+
+    // Run profile-specific strategies in parallel
     const [jsonld, meta, dom, obf, aria, inline] = await Promise.all([
       Promise.resolve(scrapeFromJSONLD()),
       Promise.resolve(scrapeFromMeta()),
@@ -563,7 +629,7 @@
     console.log("📊 ARIA:", aria);
     console.log("📊 Inline:", inline);
 
-    let profile = mergeProfiles(jsonld, inline, dom, obf, aria, meta);
+    profile = mergeProfiles(jsonld, inline, dom, obf, aria, meta);
 
     // Try to extract contact info (email/phone)
     console.log("📇 Attempting contact info extraction...");
@@ -587,9 +653,67 @@
     return profile;
   }
 
-  // ─── Check if profile page ───
+  // ─── Check if any LinkedIn page ───
   function isProfilePage() {
-    return /linkedin\.com\/in\//.test(window.location.href);
+    return window.location.hostname?.includes("linkedin.com") || false;
+  }
+
+  // ─── Home/feed page scrape: extract own profile from nav bar + left rail ───
+  function scrapeFromFeedPage() {
+    const profile = { name: "", title: "", company: "", location: "", photoUrl: "" };
+    try {
+      // PRIMARY: Navigation bar profile (always present)
+      const navProfile = document.querySelector(
+        "#global-nav [data-control-name='profile'], " +
+        "#global-nav div[class*='profile'], " +
+        "#global-nav a[class*='profile'], " +
+        ".global-nav__me, " +
+        "[data-control-name='profile_menu']"
+      );
+      if (navProfile) {
+        const img = navProfile.querySelector("img");
+        if (img?.alt) profile.name = img.alt;
+        if (img?.src) profile.photoUrl = img.src;
+      }
+
+      // SECONDARY: Left rail profile card on feed page
+      if (!profile.name) {
+        const leftRail = document.querySelector(
+          ".feed-shared-left-rail, " +
+          "aside.scaffold-layout__aside, " +
+          "[class*='left-rail'], " +
+          "section[class*='profile-card'], " +
+          "div[class*='profile-card']"
+        );
+        if (leftRail) {
+          const nameEl = leftRail.querySelector(
+            "a[class*='profile'] span, " +
+            "h2[id*='title'], " +
+            "h3, " +
+            "[class*='name'], " +
+            "a[href*='/in/']"
+          );
+          if (nameEl) profile.name = getText(nameEl);
+          if (!profile.photoUrl) {
+            const img = leftRail.querySelector("img[src*='licdn']");
+            if (img?.src) profile.photoUrl = img.src;
+          }
+        }
+      }
+
+      // TERTIARY: page <title> tag
+      if (!profile.name) {
+        const titleTag = document.querySelector("title");
+        if (titleTag) {
+          const title = titleTag.innerText || "";
+          const nameMatch = title.match(/^([^(]+)/);
+          if (nameMatch) profile.name = nameMatch[1].trim();
+        }
+      }
+
+      console.log("📊 Feed scraper result:", profile);
+    } catch (e) { console.log("Feed page scrape error:", e); }
+    return profile;
   }
 
   // ─── Message listener ───
@@ -631,8 +755,6 @@
         } else if (message.type === "INSERT_MESSAGE") {
           insertMessageIntoLinkedIn(message.text);
           sendResponse({ success: true });
-        } else if (message.type === "INIT_BULK_CAPTURE") {
-          await handleBulkCaptureMsg(sendResponse);
         } else {
           console.log("Ignoring unknown message type:", message.type);
         }
@@ -732,217 +854,4 @@
     return profile;
   };
 
-  // ═══════════════════════════════════════════════════════════════
-  // BULK LEADS CAPTURE — Scrape search results for popup display
-  // ═══════════════════════════════════════════════════════════════
-
-  const SEARCH_CARD_SELECTOR = [
-    ".reusable-search__result-container",
-    'li[data-occludable-job-id]',
-    '[data-view-name="search-entity-result"]',
-    ".entity-result",
-    "li.search-result",
-    ".search-result__wrapper",
-    ".search-results__list-item",
-    "div[class*='search-entity']",
-  ].join(",");
-
-  function isSearchResultsPage() {
-    const path = window.location.pathname || "";
-    const host = window.location.hostname || "";
-    return (
-      (host === "linkedin.com" || host.endsWith(".linkedin.com")) &&
-      (
-        path.includes("/search/results/people") ||
-        path.includes("/search/results/people/") ||
-        path.includes("/sales/search/people") ||
-        path.includes("/recruiter/search") ||
-        path.includes("/search/results/all")
-      )
-    );
-  }
-
-  function waitForSearchResults(timeout) {
-    timeout = timeout || 8000;
-    return new Promise(function (resolve) {
-      var existing = document.querySelector(
-        ".reusable-search__result-container, .entity-result, [data-view-name='search-entity-result'], .search-result__wrapper, .search-results__list-item"
-      );
-      if (existing) return resolve(true);
-      var observer = new MutationObserver(function () {
-        var el = document.querySelector(
-          ".reusable-search__result-container, .entity-result, [data-view-name='search-entity-result'], .search-result__wrapper, .search-results__list-item"
-        );
-        if (el) {
-          observer.disconnect();
-          resolve(true);
-        }
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-      setTimeout(function () {
-        observer.disconnect();
-        resolve(false);
-      }, timeout);
-    });
-  }
-
-  function extractLeadFromCard(card) {
-    try {
-      var name = "";
-      var title = "";
-      var company = "";
-      var location = "";
-      var profileUrl = "";
-      var photoUrl = "";
-
-      var nameSelectors = [
-        ".entity-result__title-text a span[aria-hidden='true']",
-        ".entity-result__title-text a span",
-        ".app-aware-link span[aria-hidden='true']",
-        "a[href*='/in/'] span:first-child",
-        ".actor-name",
-        '[data-anonymize="person-name"]',
-        ".search-result__result-link span",
-      ];
-      for (var i = 0; i < nameSelectors.length; i++) {
-        var el = card.querySelector(nameSelectors[i]);
-        if (el && el.textContent.trim()) {
-          name = el.textContent.trim();
-          break;
-        }
-      }
-      if (!name) {
-        var link = card.querySelector('a[href*="/in/"]');
-        if (link) name = link.textContent.trim();
-      }
-
-      var titleSelectors = [
-        ".entity-result__primary-subtitle",
-        '[data-anonymize="headline"]',
-        ".search-result__info .subline-level-1",
-        ".entity-result__summary",
-      ];
-      for (var i = 0; i < titleSelectors.length; i++) {
-        var el = card.querySelector(titleSelectors[i]);
-        if (el) {
-          var txt = el.textContent.trim();
-          if (txt && txt.length < 300) { title = txt; break; }
-        }
-      }
-
-      var companySelectors = [
-        ".entity-result__secondary-subtitle",
-        ".entity-result__subtitle",
-        '[data-anonymize="company-name"]',
-        ".entity-result__summary-item",
-      ];
-      for (var i = 0; i < companySelectors.length; i++) {
-        var el = card.querySelector(companySelectors[i]);
-        if (el) {
-          var txt = el.textContent.trim();
-          if (txt && txt.length < 150) { company = txt; break; }
-        }
-      }
-
-      var locationSelectors = [
-        ".entity-result__tertiary-subtitle",
-        '[data-anonymize="location"]',
-        ".entity-result__caption",
-      ];
-      for (var i = 0; i < locationSelectors.length; i++) {
-        var el = card.querySelector(locationSelectors[i]);
-        if (el) {
-          var txt = el.textContent.trim();
-          if (txt && /^[A-Za-z0-9\s,.\-()]+$/.test(txt) && txt.length < 100) { location = txt; break; }
-        }
-      }
-
-      var linkEl = card.querySelector('a[href*="/in/"], a[href*="/sales/people/"], a[href*="/pub/"], a[href*="/profile/"]');
-      if (linkEl) {
-        var href = linkEl.getAttribute("href");
-        if (href) {
-          var url = href.startsWith("http") ? href : "https://www.linkedin.com" + href;
-          profileUrl = url.split("?")[0].split("#")[0];
-        }
-      }
-      if (!profileUrl) {
-        var anyLink = card.querySelector('a[href*="/in/"], a[href*="/sales/people/"], a[href*="/pub/"], a[href*="/profile/"]');
-        if (anyLink) {
-          var href = anyLink.getAttribute("href");
-          if (href) {
-            var url = href.startsWith("http") ? href : "https://www.linkedin.com" + href;
-            profileUrl = url.split("?")[0].split("#")[0];
-          }
-        }
-      }
-
-      var imgSelectors = [
-        "img[src*='licdn.com']",
-        "img.EntityPhoto",
-        "img[class*='EntityPhoto']",
-        "li.reusable-search__result-container img",
-      ];
-      for (var i = 0; i < imgSelectors.length; i++) {
-        var el = card.querySelector(imgSelectors[i]);
-        if (el && el.src) { photoUrl = el.src; break; }
-      }
-
-      if (!name || !profileUrl) return null;
-
-      if (!company && title) {
-        var atMatch = title.match(/\s+at\s+(.+)/i);
-        if (atMatch) {
-          company = atMatch[1].trim();
-          title = title.replace(/\s+at\s+.+$/i, "").trim();
-        }
-      }
-
-      return { name: name, title: title, company: company, location: location, profileUrl: profileUrl, photoUrl: photoUrl };
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function scrapeAllSearchResults() {
-    var leads = [];
-    var cards = document.querySelectorAll(SEARCH_CARD_SELECTOR);
-    for (var i = 0; i < cards.length; i++) {
-      var card = cards[i];
-      if (card.closest(".artdeco-pagination")) continue;
-      if (card.querySelector(".artdeco-pagination")) continue;
-      if (card.innerText.includes("Show more results")) continue;
-      var lead = extractLeadFromCard(card);
-      if (lead) leads.push(lead);
-    }
-    return leads;
-  }
-
-  async function handleBulkCaptureMsg(sendResponse) {
-    try {
-      console.log("[BulkCapture] url=", window.location.href);
-      console.log("[BulkCapture] search page=", isSearchResultsPage());
-
-      if (!isSearchResultsPage()) {
-        sendResponse({
-          success: false,
-          error: "Not on a LinkedIn search results page. Current URL: " + window.location.href,
-        });
-        return;
-      }
-
-      var loaded = await waitForSearchResults(8000);
-      console.log("[BulkCapture] results loaded=", loaded);
-      if (!loaded) {
-        sendResponse({ success: false, error: "Could not find search results on this page." });
-        return;
-      }
-
-      var leads = scrapeAllSearchResults();
-      console.log("[BulkCapture] found leads=", leads.length);
-      sendResponse({ success: true, leads: leads, count: leads.length });
-    } catch (e) {
-      console.error("[BulkCapture] error", e);
-      sendResponse({ success: false, error: e.message || "Unknown error" });
-    }
-  }
 })();

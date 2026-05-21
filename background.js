@@ -5,30 +5,20 @@
 // === CONFIG: Production URL for extension ===
 const API_BASE_URL = "https://linkedaai.flowentech.com"; // Extension communicates with the Next.js dashboard
 
-/**
- * Enable side panel for LinkedIn tabs
- */
+// Clear popup so onClicked always fires (must run at top level on SW start)
+chrome.action.setPopup({ popup: '' });
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log("LinkedIn AI Outreach extension installed/updated");
 });
 
-// Auto-open side panel when clicking extension icon on LinkedIn
+// Auto-open side panel when clicking extension icon
 chrome.action.onClicked.addListener(async (tab) => {
-  console.log("🖱️ Extension icon clicked on tab:", tab.url);
-  if (tab.url?.includes("linkedin.com")) {
-    try {
-      console.log("📱 Opening side panel...");
-      await chrome.sidePanel.open({ tabId: tab.id });
-    } catch (error) {
-      console.log("Could not open side panel:", error);
-    }
-  }
-});
-
-// Ensure content script is loaded when needed
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' && tab.url?.includes('linkedin.com/in/')) {
-    console.log("📄 LinkedIn profile page loaded:", tab.url);
+  try {
+    await chrome.sidePanel.open({ tabId: tab.id });
+  } catch (error) {
+    // Fallback: open popup in a new tab if side panel fails
+    chrome.tabs.create({ url: "popup/popup.html" });
   }
 });
 
@@ -71,17 +61,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       insertMessageInTab(message.text, sendResponse);
       return true;
 
-    case "INIT_BULK_CAPTURE":
-      initBulkCapture(sendResponse);
-      return true;
 
-    case "BULK_SAVE_LEADS":
-      bulkSaveLeads(message.leads, sendResponse);
-      return true;
-
-    case "REMOVE_BULK_UI":
-      removeBulkUI(sendResponse);
-      return true;
   }
 });
 
@@ -100,33 +80,33 @@ async function getProfileFromActiveTab(sendResponse) {
 
     console.log("📱 Active tab:", activeTab?.url);
 
-    // Check if active tab is a LinkedIn profile
-    if (activeTab?.url?.includes("linkedin.com/in/")) {
-      console.log("✅ Active tab is LinkedIn profile, using it");
+    // Check if active tab is a LinkedIn page (profile, feed, or home)
+    if (activeTab?.url?.includes("linkedin.com")) {
+      console.log("✅ Active tab is LinkedIn, scraping from it");
       return await scrapeProfileFromTab(activeTab.id, sendResponse);
     }
 
-    // If active tab is not LinkedIn, search for LinkedIn profile tabs in all windows
-    console.log("⚠️ Active tab is not LinkedIn profile, searching all tabs...");
+    // If active tab is not LinkedIn, search for LinkedIn tabs in all windows
+    console.log("⚠️ Active tab is not LinkedIn, searching all tabs...");
     const allTabs = await chrome.tabs.query({});
     const linkedinTabs = allTabs.filter(tab =>
-      tab.url?.includes("linkedin.com/in/") &&
+      tab.url?.includes("linkedin.com") &&
       !tab.url?.includes("linkedin.com/in/#")
     );
 
-    console.log("🔍 Found", linkedinTabs.length, "LinkedIn profile tabs");
+    console.log("🔍 Found", linkedinTabs.length, "LinkedIn tabs");
 
     if (linkedinTabs.length === 0) {
       sendResponse({
         success: false,
-        error: "Please navigate to a LinkedIn profile page first."
+        error: "Please navigate to a LinkedIn page first."
       });
       return;
     }
 
-    // Use the most recent LinkedIn profile tab
+    // Use the most recent LinkedIn tab
     const linkedinTab = linkedinTabs[0];
-    console.log("✅ Using LinkedIn profile tab:", linkedinTab.url);
+    console.log("✅ Using LinkedIn tab:", linkedinTab.url);
 
     return await scrapeProfileFromTab(linkedinTab.id, sendResponse);
 
@@ -310,6 +290,7 @@ async function saveLead(payload, sendResponse) {
           photoUrl: profile.photoUrl || "",
           email: profile.email || "",
           phone: profile.phone || "",
+          website: profile.website || "",
         },
         tags: finalTags,
         roleTag: roleTag || "",
@@ -359,138 +340,6 @@ async function insertMessageInTab(text, sendResponse) {
   } catch (err) {
     console.error("Insert message error:", err);
     sendResponse({ success: false, error: "Could not insert message." });
-  }
-}
-
-/**
- * Forward INIT_BULK_CAPTURE to the active tab's content script
- */
-async function initBulkCapture(sendResponse) {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) {
-      sendResponse({ success: false, error: "No active tab found" });
-      return;
-    }
-
-    // Ensure content script is alive
-    try {
-      await chrome.tabs.sendMessage(tab.id, { type: "PING" });
-    } catch {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ["content.js"],
-      });
-      await new Promise(r => setTimeout(r, 1000));
-    }
-
-    const result = await new Promise((resolve) => {
-      chrome.tabs.sendMessage(tab.id, { type: "INIT_BULK_CAPTURE" }, (response) => {
-        const lastError = chrome.runtime.lastError;
-        if (lastError) {
-          console.error("Bulk capture sendMessage failed:", lastError.message);
-          resolve({ success: false, error: lastError.message });
-          return;
-        }
-        resolve(response || { success: false, error: "No response from content script" });
-      });
-    });
-
-    console.log("Bulk capture response from content script:", result);
-    sendResponse(result);
-  } catch (err) {
-    console.error("Bulk capture error:", err);
-    sendResponse({ success: false, error: err.message || "Failed to start bulk capture" });
-  }
-}
-
-/**
- * Save multiple leads in bulk
- */
-async function bulkSaveLeads(leads, sendResponse) {
-  try {
-    const token = await getStoredToken();
-    if (!token) {
-      sendResponse({ success: false, error: "Please sign in first" });
-      return;
-    }
-
-    if (!Array.isArray(leads) || leads.length === 0) {
-      sendResponse({ success: false, error: "No leads to save" });
-      return;
-    }
-
-    let saved = 0;
-    let errors = [];
-
-    for (let i = 0; i < leads.length; i++) {
-      const lead = leads[i];
-      if (!lead.name || !lead.profileUrl) {
-        errors.push({ index: i, error: "Missing name or profileUrl" });
-        continue;
-      }
-
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/leads`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            profile: {
-              name: lead.name,
-              title: lead.title || "",
-              company: lead.company || "",
-              location: lead.location || "",
-              profileUrl: lead.profileUrl,
-              photoUrl: lead.photoUrl || "",
-              email: "",
-              phone: "",
-            },
-            tags: [],
-            roleTag: "",
-            leadStatus: "",
-            message: "",
-            tone: "professional",
-          }),
-        });
-
-        if (response.ok) {
-          saved++;
-        } else {
-          const data = await response.json().catch(() => ({}));
-          errors.push({ index: i, error: data.error || `HTTP ${response.status}` });
-        }
-      } catch (e) {
-        errors.push({ index: i, error: e.message });
-      }
-    }
-
-    sendResponse({
-      success: saved > 0,
-      saved,
-      total: leads.length,
-      errors: errors.length > 0 ? errors : undefined,
-    });
-  } catch (err) {
-    console.error("Bulk save error:", err);
-    sendResponse({ success: false, error: err.message || "Failed to save leads" });
-  }
-}
-
-/**
- * Remove bulk UI from the active tab
- */
-async function removeBulkUI(sendResponse) {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id) {
-      await chrome.tabs.sendMessage(tab.id, { type: "REMOVE_BULK_UI" }).catch(() => {});
-    }
-    sendResponse({ success: true });
-  } catch {
-    sendResponse({ success: true });
   }
 }
 

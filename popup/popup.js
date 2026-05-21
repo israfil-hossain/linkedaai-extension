@@ -7,15 +7,16 @@ const API_BASE_URL = "https://linkedaai.flowentech.com";
 // ---- State ----
 let state = {
   profile: null,
-  selectedTone: "professional",
-  generatedMessage: "",
   isGenerating: false,
   isLoggedIn: false,
   usageCount: 0,
   usageLimit: 10,
   leads: [],
   notes: [],
-  bulkLeads: [],
+  notesPage: 1,
+  notesTotalPages: 1,
+  notesLoadingMore: false,
+
   currentPanel: "main",
   authMode: "login" // 'login' | 'signup'
 };
@@ -27,7 +28,6 @@ const $ = (id) => document.getElementById(id);
 const panels = {
   auth: null,
   main: null,
-  bulk: null,
   leads: null,
   notes: null,
   settings: null
@@ -36,19 +36,49 @@ const panels = {
 // Auth elements
 let authEmail, authPassword, authName, authBtn, authTitle, authSubtitle, authToggle, authToggleText;
 
+// ---- Session Cache Helpers ----
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes for auth
+
+async function cacheGet(key) {
+  try {
+    const result = await chrome.storage.session.get([key]);
+    if (!result[key]) return null;
+    const entry = result[key];
+    if (Date.now() - entry.ts > CACHE_TTL) return null;
+    return entry.data;
+  } catch { return null; }
+}
+
+async function cacheSet(key, data) {
+  try {
+    await chrome.storage.session.set({ [key]: { data, ts: Date.now() } });
+  } catch { /* storage quota exceeded */ }
+}
+
+async function cacheRemove(key) {
+  try { await chrome.storage.session.remove([key]); } catch {}
+}
+
 // ---- Keepalive: wake service worker on popup open ----
 function initKeepalive() {
   try {
     const port = chrome.runtime.connect({ name: "popup-keepalive" });
     port.onDisconnect.addListener(() => {
-      // Must access lastError to suppress "Unchecked runtime.lastError"
-      if (chrome.runtime.lastError) {
-        // Service worker disconnected or not ready — handled silently
-      }
+      if (chrome.runtime.lastError) { /* handled silently */ }
     });
-  } catch (e) {
-    // Connection failed, sendBg retry will handle it
-  }
+  } catch (e) { /* sendBg retry will handle it */ }
+}
+
+// ---- Save state on visibility change ----
+function setupVisibilitySave() {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden" && state.profile) {
+      chrome.storage.session.set({
+        cachedProfile: state.profile,
+        cachedProfileTs: Date.now(),
+      }).catch(() => {});
+    }
+  });
 }
 
 // ---- Loading overlay ----
@@ -60,59 +90,17 @@ function hideLoadingOverlay() {
   }
 }
 
-// ---- Wake service worker before init ----
-function wakeServiceWorker() {
-  return new Promise((resolve) => {
-    let attempts = 3;
-    function tryWake() {
-      try {
-        // Access lastError to clear any residual value
-        const _ = chrome.runtime.lastError;
-        chrome.runtime.sendMessage({ type: "PING" }, () => {
-          if (chrome.runtime.lastError) {
-            if (--attempts > 0) {
-              setTimeout(tryWake, 150);
-            } else {
-              resolve();
-            }
-          } else {
-            resolve();
-          }
-        });
-      } catch {
-        if (--attempts > 0) {
-          setTimeout(tryWake, 150);
-        } else {
-          resolve();
-        }
-      }
-    }
-    tryWake();
-  });
-}
-
 // ---- Init ----
 document.addEventListener("DOMContentLoaded", async () => {
   console.log("🚀 LinkedIn AI Outreach initialized");
 
   try {
-    // Wake the service worker before anything else
-    await wakeServiceWorker();
-
     // Cache DOM refs
     panels.auth = $("auth-panel");
     panels.main = $("main-panel");
-    panels.bulk = $("bulk-panel");
     panels.leads = $("leads-panel");
     panels.notes = $("notes-panel");
     panels.settings = $("settings-panel");
-
-    // Fallback: Show auth panel if panels exist
-    if (panels.auth && !panels.auth.classList.contains("active") &&
-        panels.main && !panels.main.classList.contains("active")) {
-      console.log("⚠️ No panel active, showing auth panel as fallback");
-      panels.auth.style.display = "flex";
-    }
 
     authEmail = $("auth-email");
     authPassword = $("auth-password");
@@ -126,12 +114,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     // Setup event listeners
     setupPasswordToggle();
     setupEventListeners();
+    setupVisibilitySave();
 
-    // Check auth after setting up listeners
+    // Try cached profile first for instant UI
+    try {
+      const cached = await chrome.storage.session.get(["cachedProfile", "cachedProfileTs"]);
+      if (cached.cachedProfile && cached.cachedProfileTs && Date.now() - cached.cachedProfileTs < 30000) {
+        state.profile = cached.cachedProfile;
+      }
+    } catch {}
+
+    // Check auth (now uses session cache — skips network if recently verified)
     await checkAuth();
   } catch (error) {
     console.error("❌ Initialization error:", error);
-    // Fallback: ensure auth panel is visible
     const authPanel = document.getElementById("auth-panel");
     if (authPanel) {
       authPanel.style.display = "flex";
@@ -184,6 +180,8 @@ function setupEventListeners() {
   // Sign out
   $("signout-btn")?.addEventListener("click", async () => {
     await sendBg({ type: "CLEAR_AUTH_TOKEN" });
+    await cacheRemove("authCheck");
+    chrome.storage.session.remove(["cachedProfile", "cachedProfileTs"]).catch(() => {});
     state.isLoggedIn = false;
     state.profile = null;
     showPanel("auth");
@@ -208,15 +206,9 @@ function setupEventListeners() {
     showPanel("settings");
   });
 
-  $("bulk-leads-btn")?.addEventListener("click", handleBulkCapture);
-
   $("leads-back-btn")?.addEventListener("click", () => showPanel("main"));
   $("notes-back-btn")?.addEventListener("click", () => showPanel("main"));
   $("settings-back-btn")?.addEventListener("click", () => showPanel("main"));
-  $("bulk-back-btn")?.addEventListener("click", () => showPanel("main"));
-  $("bulk-cancel-btn")?.addEventListener("click", () => showPanel("main"));
-  $("bulk-select-all-btn")?.addEventListener("click", handleBulkSelectAll);
-  $("bulk-save-btn")?.addEventListener("click", handleBulkSave);
 
   // Profile refresh
   $("refresh-profile-btn")?.addEventListener("click", loadProfile);
@@ -224,47 +216,7 @@ function setupEventListeners() {
   // Google Search
   $("google-search-btn")?.addEventListener("click", handleGoogleSearch);
 
-  // Tone selection
-  document.querySelectorAll(".tone-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".tone-btn").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      state.selectedTone = btn.dataset.tone;
-    });
-  });
-
-  // Generate
-  $("generate-btn")?.addEventListener("click", generateMessage);
-  $("regen-btn")?.addEventListener("click", generateMessage);
-
-  // Output actions
-  $("copy-btn")?.addEventListener("click", async () => {
-    if (!state.generatedMessage) return;
-    try {
-      await navigator.clipboard.writeText(state.generatedMessage);
-      showToast("Copied to clipboard!", "success");
-    } catch {
-      showToast("Copy failed", "error");
-    }
-  });
-
-  $("insert-btn")?.addEventListener("click", async () => {
-    if (!state.generatedMessage) return;
-    const result = await sendBg({
-      type: "INSERT_MESSAGE_IN_TAB",
-      text: state.generatedMessage,
-    });
-    if (result.success) {
-      showToast("Message inserted into LinkedIn!", "success");
-    } else {
-      showToast("Open LinkedIn messaging first", "error");
-    }
-  });
-
   // Save lead
-  $("add-details-btn")?.addEventListener("click", () => {
-    $("lead-details-section")?.classList.toggle("hidden");
-  });
   $("save-lead-btn")?.addEventListener("click", handleSaveLead);
 
   // Manual Lead Creation
@@ -279,26 +231,32 @@ function setupEventListeners() {
   $("delete-note-btn")?.addEventListener("click", handleDeleteNote);
 
   // Search
-  $("leads-search")?.addEventListener("input", handleLeadsSearch);
-  $("notes-search")?.addEventListener("input", debounce(() => loadNotes(), 300));
+  $("leads-search")?.addEventListener("input", debounce(handleLeadsSearch, 250));
+  $("notes-search")?.addEventListener("input", debounce(() => { state.notesPage = 1; loadNotes(); }, 300));
+  $("sticky-toggle")?.addEventListener("change", () => {
+    stickyFilterActive = $("sticky-toggle")?.checked || false;
+    if (stickyFilterActive) selectedNoteTag = "";
+    state.notesPage = 1;
+    loadNotes();
+  });
 
   // Upgrade
   $("upgrade-to-pro-btn")?.addEventListener("click", handleUpgrade);
 }
 
 function openManualLeadModal() {
-  const modal = $("manual-lead-modal");
-  if (!modal) return;
-  modal.classList.remove("hidden");
-  modal.style.display = "flex";
+  const section = $("manual-lead-section");
+  if (!section) return;
+  section.classList.remove("hidden");
+  section.style.display = "block";
   setTimeout(() => $("manual-lead-name")?.focus(), 0);
 }
 
 function closeManualLeadModal() {
-  const modal = $("manual-lead-modal");
-  if (!modal) return;
-  modal.classList.add("hidden");
-  modal.style.display = "none";
+  const section = $("manual-lead-section");
+  if (!section) return;
+  section.classList.add("hidden");
+  section.style.display = "none";
 }
 
 // ---- Auth ----
@@ -448,6 +406,20 @@ async function checkAuth() {
       return;
     }
 
+    // Try session cache first — avoid network call if recently verified
+    const cachedAuth = await cacheGet("authCheck");
+    if (cachedAuth) {
+      state.isLoggedIn = true;
+      state.usageCount = cachedAuth.usageToday || 0;
+      state.usageLimit = cachedAuth.usageLimit || 10;
+      if ($("settings-email")) $("settings-email").textContent = cachedAuth.email || "—";
+      if ($("settings-plan")) $("settings-plan").textContent = cachedAuth.plan === "pro" ? "Pro" : "Free";
+      updateUsageCounter();
+      showPanel("main");
+      loadProfile(); // don't await — show UI instantly
+      return;
+    }
+
     // Verify token with server
     let res;
     try {
@@ -456,17 +428,16 @@ async function checkAuth() {
       });
     } catch (networkErr) {
       console.warn("🌐 Network error verifying token, using cached token:", networkErr);
-      // Offline or server down — don't clear token, show main panel
       state.isLoggedIn = true;
       showPanel("main");
-      await loadProfile();
+      loadProfile(); // don't await
       return;
     }
 
-    // Only clear token on 401/403 (actually invalid). Keep it on 5xx or other errors.
     if (res.status === 401 || res.status === 403) {
       console.warn("🚫 Token rejected by server (", res.status, "), clearing...");
       await sendBg({ type: "CLEAR_AUTH_TOKEN" });
+      await cacheRemove("authCheck");
       showPanel("auth");
       return;
     }
@@ -475,7 +446,7 @@ async function checkAuth() {
       console.warn("⚠️ /api/auth/me returned", res.status, "— keeping token, showing main panel");
       state.isLoggedIn = true;
       showPanel("main");
-      await loadProfile();
+      loadProfile(); // don't await
       return;
     }
 
@@ -484,15 +455,20 @@ async function checkAuth() {
     state.usageCount = data.usageToday || 0;
     state.usageLimit = data.usageLimit || 10;
 
-    // Update UI
+    // Cache auth result
+    await cacheSet("authCheck", {
+      email: data.email,
+      plan: data.plan,
+      usageToday: data.usageToday,
+      usageLimit: data.usageLimit,
+    });
+
     if ($("settings-email")) $("settings-email").textContent = data.email || "—";
-    if ($("settings-plan")) {
-      $("settings-plan").textContent = data.plan === "pro" ? "Pro" : "Free";
-    }
+    if ($("settings-plan")) $("settings-plan").textContent = data.plan === "pro" ? "Pro" : "Free";
     updateUsageCounter();
 
     showPanel("main");
-    await loadProfile();
+    loadProfile(); // don't await
 
   } catch (error) {
     console.error("Auth check error:", error);
@@ -529,15 +505,22 @@ async function loadProfile() {
   console.log("🔄 Loading profile from LinkedIn tab...");
   setStatus("loading", "Loading profile...");
 
+  // Render cached profile instantly if available
+  if (state.profile) {
+    renderProfile(state.profile);
+    setStatus("ready", "Profile loaded ✓");
+  }
+
   try {
     const result = await sendBg({ type: "GET_PROFILE_FROM_TAB" });
 
     if (!result.success || !result.profile) {
-      $("profile-loaded")?.classList.add("hidden");
-      $("profile-empty")?.classList.remove("hidden");
-      $("generate-btn") && ($("generate-btn").disabled = true);
-      $("save-lead-btn") && ($("save-lead-btn").disabled = true);
-      setStatus("error", "No profile detected");
+      if (!state.profile) {
+        $("profile-loaded")?.classList.add("hidden");
+        $("profile-empty")?.classList.remove("hidden");
+        $("save-lead-btn") && ($("save-lead-btn").disabled = true);
+        setStatus("error", "No profile detected");
+      }
       return;
     }
 
@@ -545,9 +528,15 @@ async function loadProfile() {
     renderProfile(result.profile);
     setStatus("ready", "Profile loaded ✓");
 
+    // Cache profile for next open
+    chrome.storage.session.set({
+      cachedProfile: result.profile,
+      cachedProfileTs: Date.now(),
+    }).catch(() => {});
+
   } catch (error) {
     console.error("Profile load error:", error);
-    setStatus("error", "Failed to load profile");
+    if (!state.profile) setStatus("error", "Failed to load profile");
   }
 }
 
@@ -560,6 +549,7 @@ function renderProfile(profile) {
   const profileLocation = $("profile-location");
   const profileEmail = $("profile-email");
   const profilePhone = $("profile-phone");
+  const profileWebsite = $("profile-website");
   const profileAvatar = $("profile-avatar");
 
   if (profileName) profileName.textContent = profile.name || "Unknown";
@@ -568,14 +558,24 @@ function renderProfile(profile) {
   if (profileLocation) profileLocation.textContent = profile.location || "Not specified";
   if (profileEmail) profileEmail.textContent = profile.email || "";
   if (profilePhone) profilePhone.textContent = profile.phone || "";
+  if (profileWebsite) {
+    if (profile.website) {
+      profileWebsite.textContent = profile.website;
+      profileWebsite.style.display = "block";
+    } else {
+      profileWebsite.style.display = "none";
+    }
+  }
 
-  // Auto-fill lead detail inputs if scraped data exists
+  // Auto-fill lead detail inputs from profile data
   const leadEmailInput = $("lead-email");
   const leadPhoneInput = $("lead-phone");
   const leadLinkedinInput = $("lead-linkedin");
-  if (leadEmailInput && profile.email && !leadEmailInput.value) leadEmailInput.value = profile.email;
-  if (leadPhoneInput && profile.phone && !leadPhoneInput.value) leadPhoneInput.value = profile.phone;
-  if (leadLinkedinInput && profile.linkedinUrl && !leadLinkedinInput.value) leadLinkedinInput.value = profile.linkedinUrl;
+  const leadWebsiteInput = $("lead-website");
+  if (leadEmailInput) leadEmailInput.value = profile.email || "";
+  if (leadPhoneInput) leadPhoneInput.value = profile.phone || "";
+  if (leadLinkedinInput) leadLinkedinInput.value = profile.linkedinUrl || "";
+  if (leadWebsiteInput) leadWebsiteInput.value = profile.website || "";
 
   if (profileAvatar) {
     if (profile.photoUrl) {
@@ -589,108 +589,7 @@ function renderProfile(profile) {
   $("profile-loaded")?.classList.remove("hidden");
   $("profile-empty")?.classList.add("hidden");
 
-  if ($("generate-btn")) $("generate-btn").disabled = false;
   if ($("save-lead-btn")) $("save-lead-btn").disabled = false;
-}
-
-// ---- Generate Message ----
-async function generateMessage() {
-  if (!state.profile) {
-    showToast("No profile loaded", "error");
-    return;
-  }
-
-  if (state.isGenerating) return;
-
-  if (state.usageCount >= state.usageLimit) {
-    showToast(`Daily limit of ${state.usageLimit} reached`, "error");
-    return;
-  }
-
-  state.isGenerating = true;
-  state.generatedMessage = "";
-  $("output-actions")?.classList.add("hidden");
-  const placeholder = $("output-placeholder");
-  if (placeholder) placeholder.style.display = "none";
-
-  if ($("output-box")) {
-    $("output-box").innerHTML = '<span style="color: var(--text-tertiary);">Thinking</span><span class="cursor-blink"></span>';
-    $("output-box").classList.add("streaming");
-  }
-
-  const generateBtn = $("generate-btn");
-  if (generateBtn) {
-    generateBtn.disabled = true;
-    generateBtn.innerHTML = '<span class="spin">⟳</span> Generating...';
-  }
-  setStatus("loading", "Generating...");
-
-  // Listen for stream updates
-  const streamListener = (message) => {
-    if (message.type === "STREAM_UPDATE") {
-      state.generatedMessage = message.fullMessage;
-      if ($("output-box")) {
-        $("output-box").innerHTML = escapeHtml(message.fullMessage) + '<span class="cursor-blink"></span>';
-        $("output-box").scrollTop = $("output-box").scrollHeight;
-      }
-    }
-  };
-
-  chrome.runtime.onMessage.addListener(streamListener);
-
-  try {
-    const result = await sendBg({
-      type: "GENERATE_MESSAGE",
-      payload: {
-        profile: state.profile,
-        tone: state.selectedTone,
-      },
-    });
-
-    chrome.runtime.onMessage.removeListener(streamListener);
-
-    if (!result.success) {
-      showToast(result.error || "Generation failed", "error");
-      setStatus("error", result.error || "Failed");
-      if ($("output-box")) {
-        $("output-box").classList.remove("streaming");
-        $("output-box").innerHTML = `<span style="color: #cc1016;">${escapeHtml(result.error || "An error occurred")}</span>`;
-      }
-      return;
-    }
-
-    state.generatedMessage = result.message;
-    state.usageCount++;
-    updateUsageCounter();
-
-    if ($("output-box")) {
-      $("output-box").innerHTML = escapeHtml(result.message);
-      $("output-box").classList.remove("streaming");
-    }
-    $("output-actions")?.classList.remove("hidden");
-    setStatus("ready", "Ready");
-    showToast("Message ready!", "success");
-
-  } catch (error) {
-    chrome.runtime.onMessage.removeListener(streamListener);
-    showToast("Generation failed", "error");
-    setStatus("error", "Failed");
-    if ($("output-box")) {
-      $("output-box").classList.remove("streaming");
-      $("output-box").innerHTML = '<span class="output-placeholder" id="output-placeholder">Your AI-generated message will appear here...</span>';
-    }
-  } finally {
-    state.isGenerating = false;
-    if (generateBtn) {
-      generateBtn.disabled = !state.profile;
-      generateBtn.innerHTML = `
-        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-        </svg>
-        Generate Message
-      `;
-    }
-  }
 }
 
 // ---- Save Lead ----
@@ -708,13 +607,14 @@ async function handleSaveLead() {
   const saveLeadBtn = $("save-lead-btn");
   if (saveLeadBtn) {
     saveLeadBtn.disabled = true;
-    saveLeadBtn.innerHTML = '<span class="spin">⟳</span> Save';
+    saveLeadBtn.innerHTML = '<span class="button-spinner"></span>';
   }
 
   const extraFields = {
     email: $("lead-email")?.value?.trim() || "",
     phone: $("lead-phone")?.value?.trim() || "",
     linkedinUrl: $("lead-linkedin")?.value?.trim() || "",
+    website: $("lead-website")?.value?.trim() || "",
     tags: $("lead-tags")?.value?.trim() ? $("lead-tags").value.split(",").map(t => t.trim()).filter(Boolean) : [],
     roleTag: $("lead-role-tag")?.value?.trim() || "",
     leadStatus: $("lead-status-tag")?.value?.trim() || "",
@@ -731,8 +631,6 @@ async function handleSaveLead() {
         tags: extraFields.tags,
         roleTag: extraFields.roleTag,
         leadStatus: extraFields.leadStatus,
-        message: state.generatedMessage || "",
-        tone: state.selectedTone,
       },
     });
 
@@ -793,7 +691,7 @@ async function handleSaveManualLead() {
   const saveBtn = $("save-manual-lead-btn");
   if (saveBtn) {
     saveBtn.disabled = true;
-    saveBtn.textContent = "Saving...";
+    saveBtn.innerHTML = '<span class="button-spinner"></span>';
   }
 
   try {
@@ -856,7 +754,7 @@ async function handleSaveManualLead() {
   } finally {
     if (saveBtn) {
       saveBtn.disabled = false;
-      saveBtn.textContent = "Save Lead";
+      saveBtn.innerHTML = "Save Lead";
     }
   }
 }
@@ -867,6 +765,7 @@ let googleResults = [];
 
 // ---- Load Notes ----
 let selectedNoteTag = "";
+let stickyFilterActive = false;
 
 async function loadLeads() {
   console.log("🔄 Loading leads...");
@@ -937,29 +836,25 @@ function handleGoogleSearch() {
     return;
   }
   
+  const name = state.profile.name || "";
   const company = state.profile.company;
+  const query = `"${name}" "${company}" email`;
   const resultsDiv = $("google-search-results");
   resultsDiv.style.display = "block";
-  resultsDiv.innerHTML = "Searching...";
   
-  showToast(`Searching for ${company}...`, "info");
+  resultsDiv.innerHTML = `
+    <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #666;">Search: ${escapeHtml(query)}</div>
+    <div style="font-size: 11px; color: #333;">
+      <a href="https://www.google.com/search?q=${encodeURIComponent(query)}" target="_blank" style="color: #3B82F6; text-decoration: none; display: block; margin: 4px 0;" onclick="event.stopPropagation()">
+        🔍 Google Search
+      </a>
+      <a href="https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(name + " " + company)}" target="_blank" style="color: #0077b5; text-decoration: none; display: block; margin: 4px 0;" onclick="event.stopPropagation()">
+        💼 LinkedIn Search
+      </a>
+    </div>
+  `;
   
-  // In a real extension, you would use a search API here
-  // For now, show mock results
-  setTimeout(() => {
-    resultsDiv.innerHTML = `
-      <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #666;">Results for: ${company}</div>
-      <div style="font-size: 11px; color: #333;">
-        <a href="https://www.google.com/search?q=${encodeURIComponent(company)}" target="_blank" style="color: #3B82F6; text-decoration: none; display: block; margin: 4px 0;" onclick="event.stopPropagation()">
-          🔍 Google Search
-        </a>
-        <a href="https://www.linkedin.com/search/results/companies/?keywords=${encodeURIComponent(company)}" target="_blank" style="color: #0077b5; text-decoration: none; display: block; margin: 4px 0;" onclick="event.stopPropagation()">
-          💼 LinkedIn Search
-        </a>
-      </div>
-    `;
-    showToast("Search results ready!", "success");
-  }, 500);
+  showToast("Search ready!", "success");
 }
 
 
@@ -1150,11 +1045,28 @@ async function deleteLead(leadId) {
 }
 
 // ---- Notes ----
-async function loadNotes() {
-  console.log("🔄 Loading notes...");
+async function loadNotes(page, append) {
+  console.log("🔄 Loading notes... page:", page, "append:", append);
   const notesList = $("notes-list");
-
   if (!notesList) return;
+
+  const pageToLoad = (page !== undefined) ? page : 1;
+  const isAppend = !!(append);
+
+  if (!isAppend) {
+    state.notes = [];
+    state.notesPage = 1;
+    state.notesTotalPages = 1;
+    state.notesLoadingMore = false;
+  }
+
+  if (state.notesLoadingMore) return;
+  state.notesLoadingMore = true;
+
+  if (isAppend) {
+    let sentinel = $("notes-scroll-sentinel");
+    if (sentinel) sentinel.before('<div class="notes-loading-more">Loading more...</div>');
+  }
 
   try {
     const { token } = await sendBg({ type: "GET_AUTH_TOKEN" });
@@ -1165,33 +1077,39 @@ async function loadNotes() {
           <p style="font-size: 13px;">Please sign in to view notes</p>
         </div>
       `;
+      state.notesLoadingMore = false;
       return;
     }
 
-    console.log("📡 Fetching notes from API...");
-
-    // Get search value
     const searchValue = $("notes-search")?.value?.trim() || "";
     const params = new URLSearchParams();
+    params.set("page", String(pageToLoad));
+    params.set("limit", "10");
     if (searchValue) params.set("search", searchValue);
     if (selectedNoteTag) params.set("tag", selectedNoteTag);
+    if (stickyFilterActive) params.set("tag", "sticky");
 
     const response = await fetch(`${API_BASE_URL}/api/notes?${params}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    console.log("📡 Notes response status:", response.status);
-
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
-      console.error("❌ Notes API error:", response.status, errorData);
       const detailMsg = errorData.details || errorData.error || `HTTP ${response.status}`;
       throw new Error(detailMsg);
     }
 
     const data = await response.json();
-    console.log("📡 Notes data:", data);
-    state.notes = data.user_notes || data.notes || [];
+    const newNotes = data.user_notes || data.notes || [];
+
+    if (isAppend) {
+      state.notes = [...state.notes, ...newNotes];
+    } else {
+      state.notes = newNotes;
+    }
+
+    state.notesPage = pageToLoad;
+    state.notesTotalPages = data.pagination?.totalPages || 1;
 
     renderNotes();
     renderNoteTagFilters();
@@ -1210,7 +1128,15 @@ async function loadNotes() {
       `;
       $("retry-notes-btn")?.addEventListener("click", loadNotes);
     }
+  } finally {
+    state.notesLoadingMore = false;
   }
+}
+
+async function loadNextNotesPage() {
+  if (state.notesLoadingMore) return;
+  if (state.notesPage >= state.notesTotalPages) return;
+  await loadNotes(state.notesPage + 1, true);
 }
 
 function renderNotes() {
@@ -1229,11 +1155,22 @@ function renderNotes() {
         <div style="font-weight: 600; margin-bottom: 2px; font-size: 13px;">No notes yet</div>
         <div style="font-size: 11px;">Create your first note!</div>
       </div>
+      <div id="notes-scroll-sentinel" style="height:1px"></div>
     `;
     return;
   }
 
-  notesList.innerHTML = state.notes.map(note => createNoteCard(note)).join("");
+  // Sort: sticky notes first
+  const sorted = [...state.notes].sort((a, b) => {
+    const aSticky = (a.tags || []).includes("sticky");
+    const bSticky = (b.tags || []).includes("sticky");
+    if (aSticky && !bSticky) return -1;
+    if (!aSticky && bSticky) return 1;
+    return 0;
+  });
+
+  notesList.innerHTML = sorted.map(note => createNoteCard(note)).join("");
+  notesList.innerHTML += '<div id="notes-scroll-sentinel" style="height:1px"></div>';
 
   // Card click opens view mode
   notesList.querySelectorAll(".note-card").forEach(card => {
@@ -1244,7 +1181,7 @@ function renderNotes() {
     });
   });
 
-  // Add event listeners for view, edit, and delete buttons
+  // Add event listeners for view, edit, delete, copy, sticky-toggle buttons
   notesList.querySelectorAll(".note-view-btn").forEach(btn => {
     const noteId = btn.dataset.noteId;
     btn.addEventListener("click", (e) => {
@@ -1276,6 +1213,7 @@ function renderNotes() {
           });
           if (response.ok) {
             showToast("Note deleted", "success");
+            state.notesPage = 1;
             await loadNotes();
           } else {
             showToast("Failed to delete note", "error");
@@ -1286,6 +1224,55 @@ function renderNotes() {
       }
     });
   });
+
+  // Copy button
+  notesList.querySelectorAll(".note-copy-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const noteId = btn.dataset.noteId;
+      const note = state.notes.find(n => String(n.id) === noteId);
+      if (note?.content) {
+        navigator.clipboard.writeText(note.content).then(() => {
+          showToast("Copied!", "success");
+        }).catch(() => {
+          showToast("Copy failed", "error");
+        });
+      } else {
+        showToast("No content to copy", "error");
+      }
+    });
+  });
+
+  // Sticky toggle button
+  notesList.querySelectorAll(".note-sticky-toggle").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const noteId = btn.dataset.noteId;
+      handleNoteStickyToggle(noteId);
+    });
+  });
+
+  // IntersectionObserver for infinite scroll
+  setupNotesInfiniteScroll();
+}
+
+function setupNotesInfiniteScroll() {
+  const sentinel = document.getElementById("notes-scroll-sentinel");
+  if (!sentinel) return;
+  if (window._notesObserver) window._notesObserver.disconnect();
+
+  // Remove any existing "Loading more..." text from previous renders
+  document.querySelectorAll(".notes-loading-more").forEach(el => el.remove());
+
+  window._notesObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) {
+      if (state.notesLoadingMore) return;
+      if (state.notesPage >= state.notesTotalPages) return;
+      loadNextNotesPage();
+    }
+  }, { root: document.querySelector(".notes-list") || null, rootMargin: "100px" });
+
+  window._notesObserver.observe(sentinel);
 }
 
 function createNoteCard(note) {
@@ -1294,9 +1281,10 @@ function createNoteCard(note) {
   const header = note.header || "";
   const tags = note.tags || [];
   const updatedAt = new Date(note.updatedAt).toLocaleDateString();
+  const isSticky = tags.includes("sticky");
 
   return `
-    <div class="note-card" data-note-id="${escapeHtml(String(note.id))}">
+    <div class="note-card ${isSticky ? 'note-card-sticky' : ''}" data-note-id="${escapeHtml(String(note.id))}">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
         <div style="flex: 1; min-width: 0;">
           ${header ? `<div style="font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; margin-bottom: 2px;">${escapeHtml(header)}</div>` : ""}
@@ -1304,6 +1292,12 @@ function createNoteCard(note) {
           ${content ? `<div class="note-content">${renderNoteCardContent(content)}</div>` : ""}
         </div>
         <div style="display: flex; gap: 4px; flex-shrink: 0;">
+          <button class="note-copy-btn" data-note-id="${escapeHtml(String(note.id))}" title="Copy content" style="background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-secondary); cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+          </button>
           <button class="note-view-btn" data-note-id="${escapeHtml(String(note.id))}" title="View" style="background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--primary); cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
             <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
@@ -1316,6 +1310,9 @@ function createNoteCard(note) {
               <path d="M13.5 6.5l4 4"/>
             </svg>
           </button>
+          <button class="note-sticky-toggle ${isSticky ? 'active' : ''}" data-note-id="${escapeHtml(String(note.id))}" title="${isSticky ? 'Remove sticky' : 'Mark sticky'}" style="background: ${isSticky ? '#FFF9C4' : 'transparent'}; border: 1px solid ${isSticky ? '#FCE83A' : 'var(--border)'}; cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 12px;">
+            📌
+          </button>
           <button class="note-delete-btn" data-note-id="${escapeHtml(String(note.id))}" title="Delete" style="background: var(--danger-light); border: 1px solid var(--danger); color: var(--danger); cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
             <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <polyline points="3 6 5 6 21 6"/>
@@ -1326,7 +1323,7 @@ function createNoteCard(note) {
       </div>
       ${tags.length > 0 ? `
         <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px;">
-          ${tags.map(tag => `<span style="font-size: 10px; padding: 2px 6px; background: var(--primary-light); color: var(--primary); border-radius: 10px;">${escapeHtml(tag)}</span>`).join("")}
+          ${tags.map(tag => `<span style="font-size: 10px; padding: 2px 6px; background: ${tag === 'sticky' ? '#FCE83A' : 'var(--primary-light)'}; color: ${tag === 'sticky' ? '#92400E' : 'var(--primary)'}; border-radius: 10px;">${escapeHtml(tag)}</span>`).join("")}
         </div>
       ` : ""}
       <div style="font-size: 11px; color: #00000066;">${updatedAt}</div>
@@ -1496,7 +1493,7 @@ async function handleSaveNote() {
   const saveBtn = $("save-note-btn");
   if (saveBtn) {
     saveBtn.disabled = true;
-    saveBtn.textContent = "Saving...";
+    saveBtn.innerHTML = '<span class="button-spinner"></span>';
   }
 
   try {
@@ -1532,7 +1529,7 @@ async function handleSaveNote() {
   } finally {
     if (saveBtn) {
       saveBtn.disabled = false;
-      saveBtn.textContent = "Save";
+      saveBtn.innerHTML = "Save";
     }
   }
 }
@@ -1557,6 +1554,43 @@ async function handleDeleteNote() {
     }
   } catch (error) {
     showToast("Failed to delete note", "error");
+  }
+}
+
+async function handleNoteStickyToggle(noteId) {
+  const note = state.notes.find(n => String(n.id) === noteId);
+  if (!note) return;
+
+  const { token } = await sendBg({ type: "GET_AUTH_TOKEN" });
+  if (!token) return;
+
+  let tags = [...(note.tags || [])];
+  const hadSticky = tags.includes("sticky");
+  if (hadSticky) {
+    tags = tags.filter(t => t !== "sticky");
+  } else {
+    tags.push("sticky");
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/notes`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ id: noteId, tags }),
+    });
+
+    if (response.ok) {
+      showToast(hadSticky ? "Unmarked sticky" : "Marked as sticky", "success");
+      note.tags = tags;
+      renderNotes();
+    } else {
+      showToast("Failed to update note", "error");
+    }
+  } catch {
+    showToast("Failed to update note", "error");
   }
 }
 
@@ -1591,200 +1625,6 @@ async function handleUpgrade() {
     }
   } catch (error) {
     showToast("Connection error", "error");
-  }
-}
-
-// ---- Bulk Capture ----
-async function handleBulkCapture() {
-  const btn = $("bulk-leads-btn");
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spin">⟳</span>';
-  }
-
-  showToast("Scanning search results...", "info");
-
-  try {
-    const result = await sendBg({ type: "INIT_BULK_CAPTURE" });
-    console.log("Bulk capture result:", result);
-
-    if (!result || !result.success) {
-      showToast(result?.error || "Failed to scan results", "error");
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = BULK_BTN_SVG;
-      }
-      return;
-    }
-
-    if (!result.leads || result.leads.length === 0) {
-      showToast("No leads found in search results", "error");
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = BULK_BTN_SVG;
-      }
-      return;
-    }
-
-    state.bulkLeads = result.leads;
-    renderBulkLeads();
-    showPanel("bulk");
-    showToast("✅ " + result.count + " leads loaded", "success");
-  } catch (error) {
-    console.error("Bulk capture error:", error);
-    showToast("Connection error", "error");
-  }
-
-  if (btn) {
-    btn.disabled = false;
-    btn.innerHTML = BULK_BTN_SVG;
-  }
-}
-
-const BULK_BTN_SVG = '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>';
-
-function renderBulkLeads() {
-  const list = $("bulk-list");
-  if (!list) return;
-
-  if (!state.bulkLeads || state.bulkLeads.length === 0) {
-    list.innerHTML = `
-      <div class="text-center text-muted" style="padding: 32px 20px;">
-        <div style="font-size: 13px;">No leads found</div>
-        <div style="font-size: 11px; margin-top: 4px;">Try a different search query</div>
-      </div>
-    `;
-    return;
-  }
-
-  list.innerHTML = state.bulkLeads.map(function(lead, index) {
-    const initial = (lead.name || "?")[0].toUpperCase();
-    return `
-      <div class="bulk-lead-item" data-index="${index}">
-        <input type="checkbox" class="bulk-checkbox" data-index="${index}" />
-        <div class="bulk-lead-avatar">
-          ${lead.photoUrl ? `<img src="${escapeHtml(lead.photoUrl)}" alt="${escapeHtml(lead.name)}" />` : initial}
-        </div>
-        <div class="bulk-lead-info">
-          <div class="bulk-lead-name">${escapeHtml(lead.name || "Unknown")}</div>
-          ${lead.title ? `<div class="bulk-lead-detail">${escapeHtml(lead.title)}</div>` : ""}
-          ${lead.company ? `<div class="bulk-lead-detail">${escapeHtml(lead.company)}</div>` : ""}
-          ${lead.location ? `<div class="bulk-lead-detail">${escapeHtml(lead.location)}</div>` : ""}
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  // Add change listeners to checkboxes
-  list.querySelectorAll(".bulk-checkbox").forEach(function(cb) {
-    cb.addEventListener("change", function() {
-      const item = this.closest(".bulk-lead-item");
-      if (item) {
-        item.classList.toggle("selected", this.checked);
-      }
-      updateBulkStats();
-    });
-  });
-
-  updateBulkStats();
-
-  if ($("bulk-source-label")) {
-    $("bulk-source-label").textContent = state.bulkLeads.length + " leads";
-  }
-}
-
-function updateBulkStats() {
-  const checked = document.querySelectorAll("#bulk-list .bulk-checkbox:checked");
-  const selected = checked.length;
-  const total = state.bulkLeads.length;
-
-  if ($("bulk-total-count")) $("bulk-total-count").textContent = total;
-  if ($("bulk-selected-count")) $("bulk-selected-count").textContent = selected;
-
-  const saveBtn = $("bulk-save-btn");
-  if (saveBtn) {
-    saveBtn.disabled = selected === 0;
-    saveBtn.textContent = "Save Selected (" + selected + ")";
-  }
-
-  const selectAllBtn = $("bulk-select-all-btn");
-  if (selectAllBtn) {
-    selectAllBtn.textContent = selected === total && total > 0 ? "Deselect All" : "Select All";
-  }
-}
-
-function handleBulkSelectAll() {
-  const checkboxes = document.querySelectorAll("#bulk-list .bulk-checkbox");
-  const checked = document.querySelectorAll("#bulk-list .bulk-checkbox:checked");
-  const allChecked = checked.length === checkboxes.length && checkboxes.length > 0;
-  const newState = !allChecked;
-
-  checkboxes.forEach(function(cb) {
-    cb.checked = newState;
-    const item = cb.closest(".bulk-lead-item");
-    if (item) item.classList.toggle("selected", newState);
-  });
-
-  updateBulkStats();
-}
-
-async function handleBulkSave() {
-  const checkboxes = document.querySelectorAll("#bulk-list .bulk-checkbox:checked");
-  if (checkboxes.length === 0) {
-    showToast("No leads selected", "error");
-    return;
-  }
-
-  const selectedLeads = [];
-  checkboxes.forEach(function(cb) {
-    const index = parseInt(cb.getAttribute("data-index"));
-    const lead = state.bulkLeads[index];
-    if (lead) {
-      selectedLeads.push({
-        name: lead.name,
-        title: lead.title || "",
-        company: lead.company || "",
-        location: lead.location || "",
-        profileUrl: lead.profileUrl,
-        photoUrl: lead.photoUrl || "",
-      });
-    }
-  });
-
-  const saveBtn = $("bulk-save-btn");
-  if (saveBtn) {
-    saveBtn.disabled = true;
-    saveBtn.textContent = "Saving...";
-  }
-
-  try {
-    const result = await sendBg({
-      type: "BULK_SAVE_LEADS",
-      leads: selectedLeads,
-    });
-
-    if (result && result.success) {
-      showToast("✅ Saved " + result.saved + " of " + selectedLeads.length + " leads", "success");
-
-      // Remove saved leads from the list
-      const indicesToRemove = new Set();
-      checkboxes.forEach(function(cb) {
-        indicesToRemove.add(parseInt(cb.getAttribute("data-index")));
-      });
-      state.bulkLeads = state.bulkLeads.filter(function(_, i) {
-        return !indicesToRemove.has(i);
-      });
-      renderBulkLeads();
-    } else {
-      showToast("❌ " + ((result && result.error) || "Save failed"), "error");
-    }
-  } catch (error) {
-    console.error("Bulk save error:", error);
-    showToast("Connection error", "error");
-  } finally {
-    if (saveBtn) {
-      updateBulkStats();
-    }
   }
 }
 
