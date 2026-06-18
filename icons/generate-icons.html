@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Generate Extension Icons</title>
+</head>
+<body>
+  <h2>Extension Icon Generator</h2>
+  <p>Open this file in Chrome, right-click each icon, and save as PNG:</p>
+  <br>
+
+  <h3>16x16</h3>
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" id="icon16">
+    <rect width="16" height="16" rx="3" fill="#4f8ef7"/>
+    <path d="M8 4L10 7H9V9H10L8 12L6 9H7V7H6L8 4Z" fill="white"/>
+    <circle cx="8" cy="8" r="1" fill="#a78bfa"/>
+  </svg>
+  <br>
+
+  <h3>48x48</h3>
+  <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" id="icon48">
+    <rect width="48" height="48" rx="8" fill="#4f8ef7"/>
+    <path d="M24 12L32 24H28V32H32L24 40L16 32H20V24H16L24 12Z" fill="white"/>
+    <circle cx="24" cy="24" r="3" fill="#a78bfa"/>
+  </svg>
+  <br>
+
+  <h3>128x128</h3>
+  <svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" id="icon128">
+    <rect width="128" height="128" rx="24" fill="#4f8ef7"/>
+    <path d="M64 32L80 56H72V72H80L64 96L48 72H56V56H48L64 32Z" fill="white"/>
+    <circle cx="64" cy="64" r="8" fill="#a78bfa"/>
+  </svg>
+
+  <script>
+    // Add download functionality
+    function downloadIcon(size) {
+      const svg = document.getElementById('icon' + size);
+      const svgData = new XMLSerializer().serializeToString(svg);
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      img.onload = function() {
+        ctx.drawImage(img, 0, 0);
+        const pngFile = canvas.toDataURL('image/png');
+        const downloadLink = document.createElement('a');
+        downloadLink.href = pngFile;
+        downloadLink.download = 'icon' + size + '.png';
+        downloadLink.click();
+      };
+      img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
+    }
+
+    document.write('<br><br><button onclick="downloadIcon(16)">Download icon16.png</button> ');
+    document.write('<button onclick="downloadIcon(48)">Download icon48.png</button> ');
+    document.write('<button onclick="downloadIcon(128)">Download icon128.png</button>');
+  </script>
+</body>
+</html>
